@@ -101,7 +101,7 @@ final class FSTabMetadata: FilmSheetTabChangeTracking {
     private(set) var displaysComments: Bool = false
 
     /// Digital source options — the vocabulary itself lives in FilmDigitalSource, since
-    /// the Reports tab charts the same tags in a different order and the metadata importer
+    /// the Insights tab charts the same tags in a different order and the metadata importer
     /// writes two of them.
     static let digitalSourceOptions = FilmDigitalSource.pickerOptions
 

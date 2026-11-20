@@ -97,11 +97,9 @@ struct SettingsSheet: View, Loggable {
                 /// activation path as a belt-and-suspenders guard.
                 .keyboardShortcut(coordinator.isSheetDismissBlocked ? nil : .cancelAction)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 20)
+            .sheetBottomBar()
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
+        .sheetFrame()
         .onKeyPress(.escape) {
             /// Block Esc key if the sheet is dismiss-blocked (blocking operation in
             /// progress, or locked to the Restore tab for database-error recovery).

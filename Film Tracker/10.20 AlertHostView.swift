@@ -28,6 +28,8 @@ enum HostAlert {
     case backupRestore
     case removeList(listID: UUID, listName: String)
     case deleteSavedSearch(id: UUID, name: String)
+    /// `filmCount` is read when the request arrives, freezing the message to the films then.
+    case deleteTag(name: String, filmCount: Int)
     case deleteListContents(listID: UUID, listName: String, filmIDs: [UUID])
     case clearListContents(listID: UUID, listName: String, filmCount: Int)
     /// `clearingSelection` carries the sender's FilmRemoval choice through the alert, so a
@@ -62,7 +64,7 @@ enum HostAlert {
     /// Which alert this is, payload aside — what coalescing and the one-at-a-time rules
     /// compare.
     enum Kind {
-        case backupRestore, removeList, deleteSavedSearch, deleteListContents, clearListContents, removeFromList
+        case backupRestore, removeList, deleteSavedSearch, deleteTag, deleteListContents, clearListContents, removeFromList
         case removeFromAllLists, deleteFromLibrary, removeFromHallOfFame, removeFromFilmQueue
         case filmQueueAdd, persistenceFailure, databaseError, libraryReadFailure
         case newLibraryResult, duplicateViewingDate, calendarEventFailure, notice
@@ -74,6 +76,7 @@ enum HostAlert {
         case .backupRestore: .backupRestore
         case .removeList: .removeList
         case .deleteSavedSearch: .deleteSavedSearch
+        case .deleteTag: .deleteTag
         case .deleteListContents: .deleteListContents
         case .clearListContents: .clearListContents
         case .removeFromList: .removeFromList
@@ -98,6 +101,7 @@ enum HostAlert {
         case .backupRestore: "Restore from Backup?"
         case .removeList: "Remove List?"
         case .deleteSavedSearch: "Delete Saved Search?"
+        case .deleteTag: TagActions.deleteAlertTitle
         case .deleteListContents: "Delete List Contents?"
         case .clearListContents: "Clear List Contents?"
         /// The Film Queue removal shares the list wording: to the user the queue sections
@@ -274,6 +278,10 @@ struct AlertHostView: View, Loggable {
             enqueue(.removeList(listID: listID, listName: listName))
         case .confirmDeleteSavedSearch(let id, let name):
             enqueue(.deleteSavedSearch(id: id, name: name))
+        case .confirmDeleteTag(let name):
+            let key = SidebarTag(name).key
+            let filmCount = SidebarTags.census(in: dataCoordinator).first { $0.key == key }?.filmCount ?? 0
+            enqueue(.deleteTag(name: name, filmCount: filmCount))
         case .confirmDeleteContents(let listID, let listName):
             /// The film IDs are not carried on the event, so they are read here, once.
             if let list = dataCoordinator.getList(listID) {
@@ -377,6 +385,12 @@ struct AlertHostView: View, Loggable {
         case .deleteSavedSearch(let id, _):
             Button("Cancel", role: .cancel) { }
             Button("Delete", role: .destructive) { SavedSearchStore.shared.delete(id) }
+
+        case .deleteTag(let name, _):
+            Button("Cancel", role: .cancel) { }
+            Button("Delete", role: .destructive) {
+                Task { await TagActions.performDelete(SidebarTag(name), coordinator: dataCoordinator) }
+            }
 
         case .deleteListContents(let listID, _, let filmIDs):
             Button("Cancel", role: .cancel) { }
@@ -574,6 +588,8 @@ struct AlertHostView: View, Loggable {
             Text("\"\(truncateListName(listName, maxLength: 42))\" will be removed. This action cannot be undone.")
         case .deleteSavedSearch(_, let name):
             Text("\"\(truncateListName(name, maxLength: 42))\" will be removed from the sidebar. Films are not affected.")
+        case .deleteTag(let name, let filmCount):
+            Text(TagActions.deleteAlertMessage(name: name, filmCount: filmCount))
         case .deleteListContents(_, let listName, let filmIDs):
             DeleteContentsMessage(listName: listName, filmCount: filmIDs.count)
         case .clearListContents(_, let listName, let filmCount):

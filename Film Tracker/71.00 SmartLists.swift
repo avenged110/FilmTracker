@@ -958,7 +958,7 @@ final class SmartLists: Loggable {
     /// — either a non-Theatrical version, or Theatrical alongside others. An empty version
     /// list does not count.
     ///
-    /// Not private: the Reports tab's alternate-versions count (DVLibraryInsights) reads
+    /// Not private: the Insights tab's alternate-versions count (DVLibraryInsights) reads
     /// this same rule, so the count and the "Alternate Versions" smart list cannot disagree.
     nonisolated static func hasAlternateVersions(_ film: FilmSnapshot) -> Bool {
         for release in film.releases where release.purchased {
@@ -1210,12 +1210,35 @@ nonisolated struct SidebarTag: Hashable, Sendable, CustomStringConvertible {
 @MainActor
 enum SidebarTags {
     /// The ranked tags, kept until the films change (DataCoordinator.filmsVersion).
-    private static var ranked: (version: UInt64, tags: [String])?
+    private static var ranked: (version: UInt64, tags: [TagUsage])?
 
-    /// The `limit` most-used tags, most-used first; ties go alphabetically.
-    static func mostUsed(_ limit: Int, in coordinator: DataCoordinator) -> [String] {
+    /// The `limit` most-used tags, most-used first; ties go alphabetically. Tags whose key is
+    /// in `excluded` (the pinned ones, which have their own section) are passed over, so the
+    /// section still lists `limit` tags when there are that many.
+    static func mostUsed(_ limit: Int, excluding excluded: Set<String> = [],
+                         in coordinator: DataCoordinator) -> [String] {
+        Array(census(in: coordinator).lazy.filter { !excluded.contains($0.key) }.prefix(limit).map(\.name))
+    }
+
+    /// The `limit` tags most recently put on a film (TagUseStore), latest first, passing over
+    /// `excluded` as mostUsed does. Tags with no recorded use follow, in most-used order.
+    static func mostRecent(_ limit: Int, excluding excluded: Set<String> = [],
+                           in coordinator: DataCoordinator) -> [String] {
+        let uses = TagUseStore.uses
+        let candidates = census(in: coordinator).filter { !excluded.contains($0.key) }
+        let used = candidates
+            .compactMap { usage in uses[usage.key].map { (usage, $0) } }
+            .sorted { $0.1 != $1.1 ? $0.1 > $1.1 : $0.0.key < $1.0.key }
+            .map(\.0)
+        let unused = candidates.lazy.filter { uses[$0.key] == nil }
+        return Array((used + unused).prefix(limit).map(\.name))
+    }
+
+    /// Every tag in the library, most-used first; ties go alphabetically by key. Each is
+    /// shown in its most-used spelling and counted once per film carrying it.
+    static func census(in coordinator: DataCoordinator) -> [TagUsage] {
         let version = coordinator.filmsVersion
-        if let ranked, ranked.version == version { return Array(ranked.tags.prefix(limit)) }
+        if let ranked, ranked.version == version { return ranked.tags }
         /// key → spelling → films using it.
         var spellings: [Substring: [String: Int]] = [:]
         for film in coordinator.getAllFilmsMap().values where !film.tags.isEmpty {
@@ -1234,9 +1257,36 @@ enum SidebarTags {
         }
         let tags = counted
             .sorted { $0.uses != $1.uses ? $0.uses > $1.uses : $0.key < $1.key }
-            .map(\.display)
+            .map { TagUsage(key: String($0.key), name: $0.display, filmCount: $0.uses) }
         ranked = (version, tags)
-        return Array(tags.prefix(limit))
+        return tags
+    }
+
+    /// `tags` with every spelling of the tag `key` replaced by one `replacement`, in the place
+    /// the first spelling held, or removed when `replacement` is nil; nil when that changes
+    /// nothing. Every other tag is left exactly as it is, duplicate spellings included: only the
+    /// tag asked about is touched. The replacement is left out where the film already holds it
+    /// as another tag, so a film never gains a second spelling of one. Pure, so
+    /// DataCoordinator.rewriteTag runs it off the main actor.
+    nonisolated static func tags(_ tags: [String], rewriting key: String, to replacement: String?) -> [String]? {
+        let keys = tags.map(SearchText.key)
+        guard keys.contains(key) else { return nil }
+        let replacementKey = replacement.map(SearchText.key)
+        /// True once the replacement is in the list, or when there is none to place.
+        var placed = replacementKey.map { newKey in keys.contains { $0 != key && $0 == newKey } } ?? true
+        var result: [String] = []
+        result.reserveCapacity(tags.count)
+        for (tag, tagKey) in zip(tags, keys) {
+            guard tagKey == key else {
+                result.append(tag)
+                continue
+            }
+            if !placed, let replacement {
+                result.append(replacement)
+                placed = true
+            }
+        }
+        return result == tags ? nil : result
     }
 
     /// Whether `film` carries `tag`. Keyed from the film's own tags, not MetadataCache: the

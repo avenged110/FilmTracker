@@ -215,7 +215,7 @@ struct FilmMetadata: Codable, Equatable {
     }
     
     /// The one title sort key rule: leading punctuation and whitespace removed, then one
-    /// leading article ("The ", "A ", "An ", any case) dropped. Shared by the Reports and
+    /// leading article ("The ", "A ", "An ", any case) dropped. Shared by the Insights view and
     /// DataViz sorts so every title ordering in the app agrees with the gallery's.
     static func stripArticles(_ title: String) -> String {
         /// Strip leading punctuation and whitespace in one pass.

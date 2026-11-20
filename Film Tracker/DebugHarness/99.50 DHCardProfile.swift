@@ -2,7 +2,7 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// DEBUG-only scenarios for the FilmSheet (its Releases carousel, save path and keyboard rules),
-/// the sheet and sidebar controls, the alert host, the Reports tables and the left sidebar's
+/// the sheet and sidebar controls, the alert host, the Insights tables and the left sidebar's
 /// disclosure rows. Most are in `all`; `reports-table-behavior` is in `ui`; `reports-hitch`
 /// and `filmsheet-perf` are opt-in measurements; `jump-menu-width` and the two
 /// `sidebar-expansion-*` launches are opt-in checks run by name.
@@ -29,8 +29,8 @@ extension DebugHarness {
         case "card-focus": return await cardFocusScenario(coordinator: coordinator)
         case "segmented-equivalence": return await segmentedEquivalenceScenario()
         case "currency-placeholder": return await currencyPlaceholderScenario(coordinator: coordinator)
-        case "reports-hitch": return await reportsHitchScenario(coordinator: coordinator)
-        case "reports-table-behavior": return await reportsTableBehaviorScenario(coordinator: coordinator)
+        case "reports-hitch": return await insightsHitchScenario(coordinator: coordinator)
+        case "reports-table-behavior": return await insightsTableBehaviorScenario(coordinator: coordinator)
         case "report-lists-cost": return await reportListsCostScenario(coordinator: coordinator)
         case "releases-settle": return await releasesSettleScenario(coordinator: coordinator)
         case "release-duplicate": return await releaseDuplicateScenario(coordinator: coordinator)
@@ -1068,10 +1068,10 @@ extension DebugHarness {
 }
 
 
-// MARK: - Reports-shaped corpus
+// MARK: - Insights-shaped corpus
 
 extension DebugHarness {
-    /// `standardCorpus` gives every Reports table tab NOTHING to show — its purchases carry no
+    /// `standardCorpus` gives every Insights table tab NOTHING to show — its purchases carry no
     /// cost, nothing has a lowest price, a Hall of Fame position or a wishlist flag — so the
     /// tabs render their "No Data" placeholders and measure as cheap. This one fills all four
     /// the way a real library does: 1,400 films with one or two releases each, about 70%
@@ -1110,7 +1110,7 @@ extension DebugHarness {
     }
 }
 
-// MARK: - Reports hitch, in the real window
+// MARK: - Insights hitch, in the real window
 ///
 /// `reports-hitch` (opt-in, a measurement): the sub-tab switch as the user sees it, in the app's
 /// REAL main window (the harness runs after MainView is up) — so drawing, the right sidebar,
@@ -1119,7 +1119,7 @@ extension DebugHarness {
 /// busy stretch (after-waiting → before-waiting) of the main thread; per switch it reports the
 /// first stretch (the delay until the frame carrying the new content is committed), the total
 /// busy time, and the longest stretch, over 800 ms. The same measurement is taken for the
-/// sub-tab switches the user compares Reports against: Recents categories and smart-list
+/// sub-tab switches the user compares Insights against: Recents categories and smart-list
 /// variants (their menu-style pickers call exactly these methods).
 extension DebugHarness {
 
@@ -1162,7 +1162,7 @@ extension DebugHarness {
         }
     }
 
-    static func reportsHitchScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+    static func insightsHitchScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "reports-hitch")
         coordinator.importFilms(reportsCorpus())
         guard let appState = AppDelegate.appState else {
@@ -1188,17 +1188,17 @@ extension DebugHarness {
             byKind[kind, default: []].append(recorder.reading(from: t0, window: 800))
         }
 
-        /// Reports: the four table tabs among themselves, then into and out of Visualizations.
-        appState.navigate(to: .libraryItem(.reports))
-        let reports = ReportsState.shared
+        /// Insights: the four table tabs among themselves, then into and out of Visualizations.
+        appState.navigate(to: .libraryItem(.insights))
+        let reports = InsightsState.shared
         reports.selectCategory(.costTracker, immediate: true)
         await settle(1500)
-        let tables: [ReportsCategory] = [.priceTracker, .hallOfFame, .releaseWishlist, .costTracker]
+        let tables: [InsightsCategory] = [.priceTracker, .hallOfFame, .releaseWishlist, .costTracker]
         for _ in 0..<3 {
             for t in tables { await measure("reports-table→table") { reports.selectCategory(t, immediate: true) } }
         }
         for _ in 0..<3 {
-            await measure("reports-table→dataviz") { reports.selectCategory(.dataVisualizations, immediate: true) }
+            await measure("reports-table→dataviz") { reports.selectCategory(.insights, immediate: true) }
             await measure("reports-dataviz→table") { reports.selectCategory(.hallOfFame, immediate: true) }
         }
 
@@ -1240,15 +1240,15 @@ extension DebugHarness {
     }
 }
 
-// MARK: - Reports table behavior, in the real window
+// MARK: - Insights table behavior, in the real window
 ///
-/// `reports-table-behavior` (opt-in): the AppKit ReportTable (27.01) does what the SwiftUI Table
+/// `reports-table-behavior` (opt-in): the AppKit InsightsTable (27.01) does what the SwiftUI Table
 /// and List it replaced did, driven through the table itself in the real window — selection into
 /// SelectionState and back out, header sorting onto the tracker's KeyPathComparator order (and
-/// ReportsState's saved order), multi-selection, and a Hall of Fame reorder through the table's
+/// InsightsState's saved order), multi-selection, and a Hall of Fame reorder through the table's
 /// drop path into the store. Launch with `open -g -n`.
 extension DebugHarness {
-    static func reportsTableBehaviorScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
+    static func insightsTableBehaviorScenario(coordinator: DataCoordinator) async -> HarnessScenarioResult {
         var r = HarnessScenarioResult(scenario: "reports-table-behavior")
         coordinator.importFilms(reportsCorpus())
         guard let appState = AppDelegate.appState,
@@ -1258,21 +1258,21 @@ extension DebugHarness {
         func tables(in view: NSView) -> [NSTableView] {
             (view as? NSTableView).map { [$0] } ?? view.subviews.flatMap(tables(in:))
         }
-        func reportTable<Row>(_: Row.Type) -> (NSTableView, ReportTable<Row>.Coordinator)? {
+        func reportTable<Row>(_: Row.Type) -> (NSTableView, InsightsTable<Row>.Coordinator)? {
             for t in tables(in: window.contentView!) {
-                if let c = t.dataSource as? ReportTable<Row>.Coordinator { return (t, c) }
+                if let c = t.dataSource as? InsightsTable<Row>.Coordinator { return (t, c) }
             }
             return nil
         }
         let selection = SelectionState.shared
-        let reports = ReportsState.shared
+        let reports = InsightsState.shared
 
         // MARK: Cost tracker — selection, sort
-        appState.navigate(to: .libraryItem(.reports))
+        appState.navigate(to: .libraryItem(.insights))
         reports.selectCategory(.costTracker, immediate: true)
         await settle(1200)
         guard let (costTable, _) = reportTable(ReleaseData.self) else {
-            r.check("cost-table-found", false, "no ReportTable<ReleaseData> in the window")
+            r.check("cost-table-found", false, "no InsightsTable<ReleaseData> in the window")
             return r
         }
         let costRows = ReleaseData.costTrackerRows(films: coordinator.getAllFilms())
@@ -1332,7 +1332,7 @@ extension DebugHarness {
         /// Drag rows 0 and 2 to above row 5: SwiftUI onMove / Array.move semantics.
         var expected = before
         expected.move(fromOffsets: [0, 2], toOffset: 5)
-        let reloadsBefore = (hofTable as? ReportNSTableView)?.fullReloadCount
+        let reloadsBefore = (hofTable as? InsightsNSTableView)?.fullReloadCount
         let moved = hofCoordinator.move([0, 2], to: 5)
         /// The table shows the new order at once (the rows slide there), before the store
         /// answers.
@@ -1341,10 +1341,10 @@ extension DebugHarness {
         r.check("hof-reorder-accepted", moved, "")
         /// The renumbered rows that come back refresh cells in place: a full reload would
         /// snap the rows instead of letting them slide.
-        let reloadsAfter = (hofTable as? ReportNSTableView)?.fullReloadCount
+        let reloadsAfter = (hofTable as? InsightsNSTableView)?.fullReloadCount
         r.check("hof-reorder-no-full-reload", reloadsBefore != nil && reloadsBefore == reloadsAfter,
                 "full reloads \(String(describing: reloadsBefore)) → \(String(describing: reloadsAfter))")
-        if let reportTable = hofTable as? ReportNSTableView, reportTable.numberOfRows > 3 {
+        if let reportTable = hofTable as? InsightsNSTableView, reportTable.numberOfRows > 3 {
             reportTable.showDropIndicator(aboveRow: 3)
             let shown = reportTable.dropIndicator
             r.check("hof-drop-indicator-shown", shown.map { $0.isHidden == false && reportTable.subviews.contains($0) } == true, "")
@@ -1393,9 +1393,9 @@ extension DebugHarness {
         func tables(in view: NSView) -> [NSTableView] {
             (view as? NSTableView).map { [$0] } ?? view.subviews.flatMap(tables(in:))
         }
-        func reportTable<Row>(_: Row.Type) -> (NSTableView, ReportTable<Row>.Coordinator)? {
+        func reportTable<Row>(_: Row.Type) -> (NSTableView, InsightsTable<Row>.Coordinator)? {
             for t in tables(in: window.contentView!) {
-                if let c = t.dataSource as? ReportTable<Row>.Coordinator { return (t, c) }
+                if let c = t.dataSource as? InsightsTable<Row>.Coordinator { return (t, c) }
             }
             return nil
         }
@@ -1470,8 +1470,8 @@ extension DebugHarness {
         let recorder = RunLoopBusyRecorder()
         recorder.start()
         defer { recorder.stop() }
-        let reports = ReportsState.shared
-        appState.navigate(to: .libraryItem(.reports))
+        let reports = InsightsState.shared
+        appState.navigate(to: .libraryItem(.insights))
         reports.selectCategory(.costTracker, immediate: true)
         await settle(1500)
         reports.selectCategory(.hallOfFame, immediate: true)
@@ -1480,7 +1480,7 @@ extension DebugHarness {
         await settle(800)
         var revisits: [String: [RunLoopBusyRecorder.Reading]] = [:]
         for _ in 0..<5 {
-            for (name, category) in [("hof", ReportsCategory.hallOfFame), ("wish", .releaseWishlist), ("cost", .costTracker)] {
+            for (name, category) in [("hof", InsightsCategory.hallOfFame), ("wish", .releaseWishlist), ("cost", .costTracker)] {
                 await settle(500)
                 recorder.reset()
                 let t0 = CACurrentMediaTime() * 1000
@@ -1496,7 +1496,7 @@ extension DebugHarness {
         }
 
         // MARK: Drags
-        func drag<Row: Identifiable & Equatable>(_ label: String, _: Row.Type, category: ReportsCategory,
+        func drag<Row: Identifiable & Equatable>(_ label: String, _: Row.Type, category: InsightsCategory,
                                                  storeOrder: () -> [UUID], moves: [(IndexSet, Int)]) async where Row.ID == UUID {
             reports.selectCategory(category, immediate: true)
             await settle(1000)
@@ -1508,7 +1508,7 @@ extension DebugHarness {
             var busy: [Double] = []
             var events: [Int] = []
             for (source, destination) in moves {
-                let reloadsBefore = (table as? ReportNSTableView)?.fullReloadCount
+                let reloadsBefore = (table as? InsightsNSTableView)?.fullReloadCount
                 var expected = tableCoordinator.rowIDs
                 expected.move(fromOffsets: source, toOffset: destination)
                 var posted = 0
@@ -1524,7 +1524,7 @@ extension DebugHarness {
                 syncMs.append(sync)
                 busy.append(recorder.reading(from: t0 * 1000, window: 800).busy)
                 events.append(posted)
-                let reloadsAfter = (table as? ReportNSTableView)?.fullReloadCount
+                let reloadsAfter = (table as? InsightsNSTableView)?.fullReloadCount
                 r.check("\(label)-drag-accepted", moved, "")
                 r.check("\(label)-drag-shown-immediately", shownAtOnce, "")
                 r.check("\(label)-drag-no-full-reload", reloadsBefore != nil && reloadsBefore == reloadsAfter,
@@ -2123,7 +2123,7 @@ extension DebugHarness {
 /// sees them) steps a view's own tabs (Recents, Unwatched, the six-variant Filtered Library),
 /// wraps, and passes through while a text field is editing; the FilmSheet cycle command steps
 /// and wraps.
-/// report-gutter-deselect: a click in a ReportTable's inset margin clears the selection.
+/// report-gutter-deselect: a click in a InsightsTable's inset margin clears the selection.
 /// jump-menu-width (opt-in, not in `all`): the Releases jump menu keeps one width with and
 /// without the cart glyph. The width checks need a purchased row, so the precondition check
 /// fails when the run has none.
@@ -2586,8 +2586,8 @@ extension DebugHarness {
         await checkDigits("recents", .libraryItem(.recents),
                           RecentsCategory.allCases) {
             RecentsState.shared.selectedCategory }
-        await checkDigits("reports", .libraryItem(.reports), ReportsCategory.allCases) {
-            ReportsState.shared.selectedCategory }
+        await checkDigits("reports", .libraryItem(.insights), InsightsCategory.allCases) {
+            InsightsState.shared.selectedCategory }
         await checkDigits("imports", .libraryItem(.imports), [ImportsCategory.metadata, .ratings]) {
             ImportsState.shared.selectedCategory }
         await checkDigits("film-queue", .libraryItem(.filmQueue), [FilmQueueFilter.all, .upNext, .soon, .later]) {
@@ -2644,8 +2644,8 @@ extension DebugHarness {
         final class Box { var selection: Set<UUID> = [] }
         let box = Box()
         let rows = (0..<5).map { GutterRow(name: "Row \($0)") }
-        let table = ReportTable(rows: rows,
-                                columns: [ReportTableColumn(id: "name", title: "Name", width: 200,
+        let table = InsightsTable(rows: rows,
+                                columns: [InsightsTableColumn(id: "name", title: "Name", width: 200,
                                                             minWidth: 100, maxWidth: 1000,
                                                             content: .text { $0.name })],
                                 selection: Binding(get: { box.selection }, set: { box.selection = $0 }))
@@ -2661,7 +2661,7 @@ extension DebugHarness {
         }
         for _ in 0..<6 { await oneRunLoopTurn() }
         host.layoutSubtreeIfNeeded()
-        guard let tv = harnessViews(host).compactMap({ $0 as? ReportNSTableView }).first else {
+        guard let tv = harnessViews(host).compactMap({ $0 as? InsightsNSTableView }).first else {
             r.check("table-found", false, ""); window.close(); return r
         }
         box.selection = [rows[1].id, rows[2].id]

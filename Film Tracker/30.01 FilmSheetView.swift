@@ -234,8 +234,7 @@ private struct FilmSheetButtonBar: View {
             /// (keyboardShortcut .defaultAction), not Tab navigation.
             .focusable(false)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 20)
+        .sheetBottomBar()
         .animation(.easeInOut(duration: 0.2), value: owner.canConfirm)
         .animation(.easeInOut(duration: 0.2), value: owner.isConfirming)
         /// With debug logging ON, "check the log" is sound advice and the user — who turned

@@ -152,6 +152,10 @@ final class DVCanvasPageView: NSView {
     private var controlsByKey: [String: DVKControl] = [:]
     private var laidOutWidth: CGFloat = -1
     private var popover: NSPopover?
+    /// The id of the popover on screen, and of the last one to close and when (system uptime,
+    /// the clock NSEvent timestamps use): what showAttentionPopover toggles by.
+    private var popoverID: String?
+    private var lastClosedPopover: (id: String, at: TimeInterval)?
     private var lastClipOrigin: CGPoint = .zero
     #if DEBUG
     static var drawCalls = 0
@@ -654,10 +658,26 @@ final class DVCanvasPageView: NSView {
 
     /// Opens the film-list popover behind `id`: a Needs Attention row, the Recordable Discs
     /// tile or Coming Up Next Month's View All row.
+    ///
+    /// A second click on the same button closes it, whichever way AppKit delivers that click.
+    /// A transient popover closes itself on a click outside it, and whether that click then
+    /// reaches this view depends on where the button sits relative to the popover: it did for
+    /// the Hall of Fame card's rows, which reopened their popover instead of closing it. So a
+    /// click on the button of the popover that is open, or of one that this very click just
+    /// closed, opens nothing.
     func showAttentionPopover(_ id: String, from rect: CGRect) {
+        if let popover, popover.isShown, popoverID == id {
+            popover.performClose(nil)
+            return
+        }
+        if let closed = lastClosedPopover, closed.id == id,
+           let clickTime = NSApp.currentEvent?.timestamp, closed.at >= clickTime {
+            return
+        }
         guard let model, let list = DVCanvasSections.popoverList(model, id: id) else { return }
         let pop = NSPopover()
         pop.behavior = .transient
+        pop.delegate = self
         pop.contentViewController = NSHostingController(rootView: DVAttentionPopover(label: list.label, items: list.items) { [weak pop] in
             pop?.performClose(nil)
         })
@@ -667,6 +687,16 @@ final class DVCanvasPageView: NSView {
         pop.contentSize = DVAttentionPopover.size
         pop.show(relativeTo: rect, of: self, preferredEdge: .minX)
         popover = pop
+        popoverID = id
+    }
+}
+
+extension DVCanvasPageView: NSPopoverDelegate {
+    /// Notes which popover closed and when, for showAttentionPopover's toggle.
+    func popoverWillClose(_ notification: Notification) {
+        guard let closing = notification.object as? NSPopover, closing === popover, let popoverID else { return }
+        lastClosedPopover = (popoverID, ProcessInfo.processInfo.systemUptime)
+        self.popoverID = nil
     }
 }
 
@@ -783,7 +813,7 @@ struct DVCanvasScrollView: NSViewRepresentable {
     func makeNSView(context: Context) -> DVCanvasScrollNSView {
         let v = DVCanvasScrollNSView(frame: .zero)
         if Preferences.maintainScrollPositionOnViewSwitch {
-            v.pendingAnchor = ReportsState.shared.visualizationsScrollAnchor
+            v.pendingAnchor = InsightsState.shared.visualizationsScrollAnchor
         }
         v.page.model = model
         v.sizePage()
@@ -799,7 +829,7 @@ struct DVCanvasScrollView: NSViewRepresentable {
     /// Banks the reading position for the next visit (restored only while "maintain scroll
     /// position" is on). A restore that never got real geometry keeps the old position.
     static func dismantleNSView(_ v: DVCanvasScrollNSView, coordinator: ()) {
-        ReportsState.shared.visualizationsScrollAnchor = v.pendingAnchor ?? v.currentAnchor()
+        InsightsState.shared.visualizationsScrollAnchor = v.pendingAnchor ?? v.currentAnchor()
     }
 }
 
@@ -812,7 +842,7 @@ struct DVScrollAnchor: Equatable {
 
 // MARK: - Print Layout
 
-/// The page as the library PDF draws it (see ReportsPDFExporter): the same sections, built
+/// The page as the library PDF draws it (see InsightsPDFExporter): the same sections, built
 /// for print (see DVBuild), as blocks no taller than a row of cards so the PDF can break
 /// pages between them rather than through a card. The viewing span is the tab's default —
 /// the current year to date against the same span of the prior year.
@@ -1356,7 +1386,7 @@ enum DVCanvasSections {
         let tiles = DVFlow(minColumnWidth: DVStyle.minTileWidth, spacing: DVStyle.tileGap, maxColumns: 6, [
             DVK.statTile(title: "Viewings", value: Fmt.count(p.viewings), color: .systemPurple,
                          delta: compare ? DVDelta(current: p.viewings, prior: p.priorViewings) : nil,
-                         footnote: p.projectedYearEnd.map { "On pace for \($0) by year end" }),
+                         footnote: p.projectedYearEnd.map { "On pace for \(Fmt.count($0)) by year end" }),
             DVK.statTile(title: "Distinct Films", value: Fmt.count(p.distinctFilms), color: .systemPurple,
                          delta: compare ? DVDelta(current: p.distinctFilms, prior: p.priorDistinctFilms) : nil),
             DVK.statTile(title: "First-time Viewings", value: Fmt.count(p.firstTimeWatches), color: .systemBlue,
@@ -2233,10 +2263,10 @@ enum DVCanvasSections {
         if insights.genres.isEmpty {
             genres = DVK.card(title: "Genres", trailingNode: genreHeader, [DVK.footnote("No genres recorded")])
         } else {
-            let peak = Double(insights.genres.compactMap { Int($0.value) }.max() ?? 1)
+            let peak = Double(insights.genres.compactMap(\.count).max() ?? 1)
             genres = DVK.card(title: "Genres", trailingNode: genreHeader, [
                 DVVStack(spacing: 6, insights.genres.map { g in
-                    DVK.barRow(label: g.name, fraction: Double(Int(g.value) ?? 0) / max(peak, 1), color: .systemBlue,
+                    DVK.barRow(label: g.name, fraction: Double(g.count ?? 0) / max(peak, 1), color: .systemBlue,
                                count: g.value, percent: g.extras.first ?? "", labelWidth: 112, countWidth: 34, percentWidth: 40,
                                fillOpacity: g.name == "Other" ? 0.3 : DVStyle.fillOpacity)
                 }),
@@ -2270,7 +2300,7 @@ enum DVCanvasSections {
         } else {
             tags.append(DVFlow(minColumnWidth: 110, spacing: 6, maxColumns: 4, insights.tags.prefix(9).map { tag in
                 DVDecorated(child: DVHStack(spacing: 6, [
-                    DVText(tag.label, .system(11), .primary),
+                    DVText(truncateListName(tag.label), .system(11), .primary),
                     DVSpacer(minLength: 4),
                     DVText(Fmt.count(tag.count), .mono(11), .secondary),
                 ]), insets: NSEdgeInsets(top: 4, left: 8, bottom: 4, right: 8), background: DVK.rowPaint, radius: 4)
@@ -2325,7 +2355,11 @@ enum DVCanvasSections {
             let t = sourceTint(r.0)
             return DVKSegment(label: r.0, count: r.1, color: t.0, fillOpacity: t.1)
         }
-        let sources = DVK.card(title: "Digital Sources", subtitle: "\(Fmt.count(stats.totalFilms - total)) films have no source recorded.", [
+        let unsourced = stats.totalFilms - total
+        let sourcesSubtitle = unsourced == 0
+            ? "All films have a source recorded."
+            : "\(Fmt.count(unsourced)) films have no source recorded."
+        let sources = DVK.card(title: "Digital Sources", subtitle: sourcesSubtitle, [
             DVK.stackedBar(sourceSegments),
             DVVStack(spacing: 2, sourceSegments.map { swatchRow($0, .system(11), count: $0.count, percent: Fmt.percent($0.count, of: total), vertical: 3) }),
         ])

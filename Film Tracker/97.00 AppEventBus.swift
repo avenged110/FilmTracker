@@ -209,6 +209,10 @@ enum UICommand: Equatable, Sendable {
     case showSavedSearchSheet(SavedSearchSheet.Mode)
     /// Open a saved search in the search field for editing.
     case openSavedSearchInField(UUID)
+
+    // MARK: Tags
+    /// Present the TagSheet: renaming one tag, or every tag in the library (TagActions).
+    case showTagSheet(TagSheet.Mode)
 }
 
 // MARK: - Alert Commands
@@ -219,6 +223,8 @@ enum AlertCommand: Equatable, Sendable {
     case confirmRemoveList(listID: UUID, listName: String)
     /// Confirm deleting a saved search (its films are unaffected)
     case confirmDeleteSavedSearch(id: UUID, name: String)
+    /// Confirm deleting a tag from every film carrying it (TagActions.delete)
+    case confirmDeleteTag(name: String)
     /// Confirm deletion of the list's films from the library
     case confirmDeleteContents(listID: UUID, listName: String)
     /// Confirm clearing list contents (remove from list, not delete)

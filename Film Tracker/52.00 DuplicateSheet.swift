@@ -43,8 +43,7 @@ struct DuplicateSheet: View {
             /// Bottom buttons.
             bottomBar
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
+        .sheetFrame()
         .onAppear {
             viewModel.configure(dataCoordinator: dataCoordinator)
             
@@ -332,8 +331,7 @@ struct DuplicateSheet: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 20)
+        .sheetBottomBar()
     }
 }
 

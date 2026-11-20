@@ -498,11 +498,9 @@ struct UpNextSlotSheet: View {
                 .focusable(false)
                 .disabled(model.selectedFilmID == nil)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 20)
+            .sheetBottomBar()
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
+        .sheetFrame()
         .onAppear { model.load(coordinator: dataCoordinator) }
         .alert("Add to Queue?", isPresented: Binding(
             get: { pendingConfirmation != nil },

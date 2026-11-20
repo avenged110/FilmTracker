@@ -574,13 +574,16 @@ extension DebugHarness {
         [("listEditScope", \.listEditScope),
          ("defaultRotationThreshold", \.defaultRotationThreshold),
          ("queueSectionOnDrop", \.queueSectionOnDrop),
-         ("showTagsInSidebar", \.showTagsInSidebar)]
+         ("showTagsInSidebar", \.showTagsInSidebar),
+         ("sidebarTagOrder", \.sidebarTagOrder)]
     }
 
     static var settingsStringFields: [(String, ReferenceWritableKeyPath<SettingsObject, String?>)] {
         [("lastImportsCategory", \.lastImportsCategory),
          ("selectedSortOptionsJSON", \.selectedSortOptionsJSON),
-         ("ignoredDuplicatePairsJSON", \.ignoredDuplicatePairsJSON)]
+         ("ignoredDuplicatePairsJSON", \.ignoredDuplicatePairsJSON),
+         ("pinnedTagsJSON", \.pinnedTagsJSON),
+         ("tagUsesJSON", \.tagUsesJSON)]
     }
 
     /// The value each field is seeded with. Booleans alternate rather than being uniformly

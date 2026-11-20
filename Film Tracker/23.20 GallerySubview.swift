@@ -1294,7 +1294,7 @@ struct GallerySubview: NSViewRepresentable, Loggable {
         #if DEBUG
         // MARK: Viewport-Jump Tracer (DEBUG only)
         ///
-        /// Reports viewport moves the app did not request. Programmatic scrolls in this file go through appViewportMove, which the
+        /// Insights viewport moves the app did not request. Programmatic scrolls in this file go through appViewportMove, which the
         /// tracer skips, as it skips live scrolls. Any jump it still reports came from elsewhere, and its call stack names the caller.
         /// It logs a bounds change whose vertical delta exceeds three viewport heights. It is compiled out of release builds.
         private let viewportJumpTracer = ViewportJumpTracer(owner: "grid")
@@ -2340,7 +2340,7 @@ final class CoastingScrollStopper: NSObject, Loggable {
 #if DEBUG
 // MARK: - Viewport-Jump Tracer (DEBUG only)
 
-/// Reports viewport moves the app did not request. The grid and the list share it.
+/// Insights viewport moves the app did not request. The grid and the list share it.
 /// It logs a clip-view bounds change whose vertical delta exceeds three viewport heights, with the call stack that moved it.
 ///
 /// Two kinds of move are already explained and skipped: the app's own moves inside `appViewportMove`, and anything during a

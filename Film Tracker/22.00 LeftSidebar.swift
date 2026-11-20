@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 /// Navigation sidebar showing Library sections and user-created Lists.
 ///
-/// The sidebar lists the Library sections, the smart lists, user lists, saved searches, and the
-/// most-used tags. Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
+/// The sidebar lists the Library sections, the smart lists, user lists, saved searches, the
+/// pinned tags, and the most-used tags. Its selection drives the gallery, and it also accepts drops onto lists and the Queue.
 
 import SwiftUI
 import AppKit
@@ -21,13 +21,13 @@ struct LeftSidebar: View, Loggable {
     
     /// Monitor Preferences.smartLists for real-time updates
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
-    /// The Tags section's length, 0 when hidden (Preferences.showTagsInSidebar).
+    /// The Most-Used Tags section's length, 0 when hidden (Preferences.showTagsInSidebar).
     @AppStorage(preference: Preferences.showTagsInSidebarKey) private var sidebarTagCount: Int
 
     /// Read through the enum, as Preferences.showTagsInSidebar reads it, so a stored value it
     /// does not name falls back to the default rather than listing that many tags.
     private var tagCount: Preferences.SidebarTagCount {
-        Preferences.SidebarTagCount(rawValue: sidebarTagCount) ?? .ten
+        Preferences.SidebarTagCount(rawValue: sidebarTagCount) ?? .hidden
     }
 
     var body: some View {
@@ -48,6 +48,11 @@ struct LeftSidebar: View, Loggable {
             /// Shown once there is something in it.
             if !SavedSearchStore.shared.searches.isEmpty {
                 SavedSearchesSection()
+            }
+
+            /// Shown once a tag is pinned, whether or not Most-Used Tags is.
+            if PinnedTagStore.shared.hasPins {
+                PinnedTagsSection()
             }
 
             /// Shown once there is something in it, as Saved Searches is. SidebarTagRecount, below,
@@ -94,9 +99,10 @@ struct LeftSidebar: View, Loggable {
             }
         }
         .onChange(of: sidebarTagCount) { _, count in
-            /// Hiding the Tags section while a tag is on screen returns to All Films, as for smart lists.
-            if count == 0, case .tag = appState.selectedSidebarItem {
-                appState.navigate(to: .libraryItem(.allFilms))
+            /// Hiding Most-Used Tags while one of its tags is on screen returns to All Films, as
+            /// for smart lists. A pinned tag keeps its row, so it stays (TagActions.canStayOpen).
+            if count == 0, case .tag(let tag) = appState.selectedSidebarItem {
+                TagActions.leaveIfStranded(tag)
             }
         }
         /// The tag rows are recounted out here, on the List, which is always on screen. A modifier of
@@ -144,78 +150,10 @@ struct LeftSidebar: View, Loggable {
 
     // MARK: - Actions
 
-    /// Single entry point for every ListRow contextual-menu action.
+    /// Single entry point for every ListRow contextual-menu action (ListActions, which the
+    /// menu bar's List menu shares).
     private func performListAction(_ action: ListRowAction, _ listID: UUID) {
-        switch action {
-        case .edit:
-            /// Request the list manager sheet for editing via UICommand;
-            /// SheetHostView handles the actual presentation.
-            Self.log("Requesting list edit sheet for list: \(listID)")
-            AppEventBus.shared.send(.ui(.editList(listID)))
-        case .duplicate:
-            AppEventBus.shared.send(.ui(.duplicateList(listID)))
-        case .clearContents:
-            handleClearListContents(listID)
-        case .deleteContents:
-            handleDeleteListContents(listID)
-        case .delete:
-            handleDeleteList(listID)
-        }
-    }
-
-    /// Resolves a list's current display name from the same cached array the rows are
-    /// built from. Returns nil — and so aborts the pending action — if the list was
-    /// removed between the menu gesture and the action firing.
-    private func listName(for listID: UUID) -> String? {
-        dataCoordinator.cachedLists.first { $0.listID == listID }?.listName
-    }
-
-    private func handleClearListContents(_ listID: UUID) {
-        /// Gated by the "list contents" class of the list-edit confirmation preference.
-        if !Preferences.shouldConfirmListContents {
-            Task {
-                _ = ListManager.clearListContents(listID, coordinator: dataCoordinator)
-            }
-        } else {
-            guard let name = listName(for: listID) else { return }
-            AppEventBus.shared.sendAlert(.confirmClearContents(
-                listID: listID, listName: name))
-        }
-    }
-    
-    private func handleDeleteListContents(_ listID: UUID) {
-        /// Film IDs are fetched synchronously, since getFilmIDsForListDeletion reads MemoryStore
-        /// directly.
-        let filmIDs = ListManager.getFilmIDsForListDeletion(listID, coordinator: dataCoordinator)
-
-        guard !filmIDs.isEmpty else {
-            /// The list became empty since the menu gesture, for example after a prior deletion.
-            Self.log("handleDeleteListContents: list \(listID) has no films — operation skipped")
-            return
-        }
-
-        if !Preferences.confirmGalleryDelete {
-            Task {
-                await ListManager.deleteListContents(listID, filmIDs: filmIDs, coordinator: dataCoordinator)
-            }
-        } else {
-            guard let name = listName(for: listID) else { return }
-            AppEventBus.shared.sendAlert(.confirmDeleteContents(
-                listID: listID, listName: name))
-        }
-    }
-    
-    private func handleDeleteList(_ listID: UUID) {
-        /// Gated by the "list structure" class of the list-edit confirmation preference.
-        if !Preferences.shouldConfirmListStructure {
-            Task {
-                _ = ListManager.deleteList(listID, coordinator: dataCoordinator)
-            }
-        } else {
-            guard let name = listName(for: listID) else { return }
-            AppEventBus.shared.sendAlert(.confirmRemoveList(
-                listID: listID, listName: name))
-        }
+        ListActions.perform(action, on: listID, coordinator: dataCoordinator)
     }
 
     private func moveItems(from source: IndexSet, to destination: Int) {
@@ -242,12 +180,12 @@ private enum SidebarRow: Hashable {
 enum SidebarLibraryFamily: String, CaseIterable, Sendable {
     case unwatched
     case recents
-    case reports
+    case insights
     /// Listed after Imports, and drawn on its own (LibrarySection), since its row is also a drop target.
     case queue
 
     /// The families LibrarySection draws together, in order. The Queue follows Imports.
-    static let grouped: [SidebarLibraryFamily] = [.unwatched, .recents, .reports]
+    static let grouped: [SidebarLibraryFamily] = [.unwatched, .recents, .insights]
 }
 
 extension SidebarLibraryFamily {
@@ -255,7 +193,7 @@ extension SidebarLibraryFamily {
         switch item {
         case .libraryItem(.unwatched): self = .unwatched
         case .libraryItem(.recents):   self = .recents
-        case .libraryItem(.reports):   self = .reports
+        case .libraryItem(.insights):   self = .insights
         case .libraryItem(.filmQueue): self = .queue
         default: return nil
         }
@@ -265,7 +203,7 @@ extension SidebarLibraryFamily {
         switch self {
         case .unwatched: return .libraryItem(.unwatched)
         case .recents:   return .libraryItem(.recents)
-        case .reports:   return .libraryItem(.reports)
+        case .insights:   return .libraryItem(.insights)
         case .queue:     return .libraryItem(.filmQueue)
         }
     }
@@ -277,7 +215,7 @@ extension SidebarLibraryFamily {
         switch self {
         case .unwatched: return .unwatched(.unwatched)
         case .recents:   return .recents(.summary)
-        case .reports:   return .reports(.primary)
+        case .insights:   return .insights(.primary)
         case .queue:     return .queue(.all)
         }
     }
@@ -293,7 +231,7 @@ extension SidebarLibraryFamily {
         switch self {
         case .unwatched: return UnwatchedCategory.allCases.map(LibraryTab.unwatched)
         case .recents:   return RecentsCategory.allCases.map(LibraryTab.recents)
-        case .reports:   return ReportsCategory.allCases.map(LibraryTab.reports)
+        case .insights:   return InsightsCategory.allCases.map(LibraryTab.insights)
         case .queue:     return FilmQueueFilter.allCases.map(LibraryTab.queue)
         }
     }
@@ -307,7 +245,7 @@ extension SidebarLibraryFamily {
         switch self {
         case .unwatched: return .unwatched(UnwatchedState.shared.selectedCategory)
         case .recents:   return .recents(RecentsState.shared.selectedCategory)
-        case .reports:   return .reports(ReportsState.shared.selectedCategory)
+        case .insights:   return .insights(InsightsState.shared.selectedCategory)
         case .queue:     return .queue(FilmQueueFilterState.shared.selectedFilter)
         }
     }
@@ -317,14 +255,14 @@ extension SidebarLibraryFamily {
 enum LibraryTab: Hashable {
     case unwatched(UnwatchedCategory)
     case recents(RecentsCategory)
-    case reports(ReportsCategory)
+    case insights(InsightsCategory)
     case queue(FilmQueueFilter)
 
     var family: SidebarLibraryFamily {
         switch self {
         case .unwatched: return .unwatched
         case .recents:   return .recents
-        case .reports:   return .reports
+        case .insights:   return .insights
         case .queue:     return .queue
         }
     }
@@ -333,7 +271,7 @@ enum LibraryTab: Hashable {
         switch self {
         case .unwatched(let category): return category.displayName
         case .recents(let category):   return category.displayName
-        case .reports(let category):   return category.displayName
+        case .insights(let category):   return category.displayName
         case .queue(let filter):       return filter.displayName
         }
     }
@@ -343,7 +281,7 @@ enum LibraryTab: Hashable {
         switch self {
         case .unwatched(let category): return category.symbol.outline
         case .recents(let category):   return category.symbol.outline
-        case .reports(let category):   return category.symbol.outline
+        case .insights(let category):   return category.symbol.outline
         case .queue(let filter):       return filter.glyph.outline
         }
     }
@@ -358,8 +296,8 @@ enum LibraryTab: Hashable {
             UnwatchedState.shared.selectCategory(category, immediate: immediate)
         case .recents(let category):
             RecentsState.shared.selectCategory(category, immediate: immediate)
-        case .reports(let category):
-            ReportsState.shared.selectCategory(category, immediate: immediate)
+        case .insights(let category):
+            InsightsState.shared.selectCategory(category, immediate: immediate)
         case .queue(let filter):
             FilmQueueFilterState.shared.selectFilter(filter)
         }
@@ -369,7 +307,7 @@ enum LibraryTab: Hashable {
     /// shortcuts all come here.
     ///
     /// From another view the tab is chosen first, in this turn, and the navigation then loads it once. Choosing
-    /// it after arriving loaded the family's previous tab on the way (for Reports, built it), then the chosen
+    /// it after arriving loaded the family's previous tab on the way (for Insights, built it), then the chosen
     /// one. Within the family it is the title-bar picker's switch, deferred past a menu's fade unless
     /// `immediate`.
     @MainActor
@@ -449,7 +387,7 @@ private struct SidebarSelectionSync: ViewModifier {
     /// displayed variant is read from SmartListVariantState. A variant inside a collapsed family
     /// is hidden, so nothing is highlighted until the family expands.
     ///
-    /// Unwatched, Recents and Reports follow the smart lists: the family's row is its primary tab,
+    /// Unwatched, Recents and Insights follow the smart lists: the family's row is its primary tab,
     /// and any other tab is its own row, unhighlighted while the family is collapsed.
     private var displayedSelection: SidebarRow {
         let item = appState.selectedSidebarItem
@@ -481,7 +419,8 @@ private struct ListRowKey: Equatable {
 /// The set of contextual-menu actions a list row can raise. Collapsing these into one
 /// enum keeps ListsSection and ListRow to a single `onAction` closure each, instead of
 /// five parallel closures declared and forwarded at every level.
-private enum ListRowAction {
+/// A list's actions: its sidebar row's menu and the menu bar's List menu.
+enum ListRowAction {
     case edit
     case duplicate
     case clearContents
@@ -576,7 +515,7 @@ private struct LibrarySection: View {
         Section("Library") {
             Label(LibraryItem.allFilms.title, systemImage: ViewGlyphs.allFilms.outline)
                 .tag(SidebarRow.item(.libraryItem(.allFilms)))
-            /// Unwatched, Recents and Reports, each a disclosure row over its own tabs, as the
+            /// Unwatched, Recents and Insights, each a disclosure row over its own tabs, as the
             /// smart list families are. See SidebarLibraryFamily. The Queue is one too, below.
             ForEach(SidebarLibraryFamily.grouped, id: \.self) { family in
                 DisclosureGroup(isExpanded: LibraryFamilyExpansion.shared.isExpanded(family)) {
@@ -823,13 +762,13 @@ private struct ListRow: View {
 }
 
 // MARK: - Row Accessory
-/// The trailing accessory slot ListRow and SavedSearchRow share: the options button, or ListRow's spinner.
+/// The trailing accessory slot ListRow, SavedSearchRow and TagRow share: the options button, or ListRow's spinner.
 private enum RowAccessory {
     static let slotWidth: CGFloat = 18
 }
 
 // MARK: - Row Options Button
-/// The chromeless ellipsis a hovered ListRow or SavedSearchRow shows in its trailing slot. The glyph is a
+/// The chromeless ellipsis a hovered ListRow, SavedSearchRow or TagRow shows in its trailing slot. The glyph is a
 /// plain Image, so it takes the row's selection and focus coloring like the row's text. An invisible,
 /// identically sized Menu on top catches the click and presents the row's menu.
 ///
@@ -892,34 +831,110 @@ private struct SavedSearchesSection: View {
     }
 }
 
-// MARK: - Tags Section Component
-/// The library's most-used tags (SidebarTags.mostUsed), `count` of them, most-used first. A row
-/// opens the gallery of the films carrying its tag (ViewIdentifier.tag), as a smart list row
-/// opens its own. Not a drop target, and no menu.
+// MARK: - Pinned Tags Section Component
+/// The tags the user pinned (PinnedTagStore), in the order they dragged them into. A pinned tag
+/// keeps its row while no film carries it; the row then opens to the "No Films Tagged"
+/// placeholder. Its glyph is the filled tag, which sets it apart from Most-Used Tags' outline.
+private struct PinnedTagsSection: View {
+    private var store: PinnedTagStore { .shared }
+
+    var body: some View {
+        Section("Pinned Tags") {
+            ForEach(store.tags, id: \.key) { tag in
+                TagRow(name: tag.name, isPinned: true)
+            }
+            .onMove { store.move(fromOffsets: $0, toOffset: $1) }
+        }
+    }
+}
+
+// MARK: - Most-Used / Most-Recent Tags Section Component
+/// The library's most-used tags (SidebarTags.mostUsed) or the ones most recently put on a film
+/// (SidebarTags.mostRecent), per Preferences.sidebarTagOrder, `count` of them, the pinned ones
+/// passed over. A row opens the gallery of the films carrying its tag
+/// (ViewIdentifier.tag), as a smart list row opens its own. Not a drop target.
 ///
 /// The rows come from SidebarTagRows, so the sidebar's own body does not read the library.
 private struct TagsSection: View {
     var body: some View {
-        Section("Tags") {
-            ForEach(SidebarTagRows.shared.tags, id: \.self) { tag in
-                Label {
-                    Text(tag)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                } icon: {
-                    Image(systemName: ViewGlyphs.tag.outline)
-                }
-                .tag(SidebarRow.item(.tag(SidebarTag(tag))))
+        /// Pinned tags are filtered here as well as in the recount, so a tag just pinned leaves
+        /// this section in the same update it joins Pinned Tags, never showing in both.
+        let pinned = PinnedTagStore.shared.keys
+        Section(SidebarTagRows.shared.order.sectionTitle) {
+            ForEach(SidebarTagRows.shared.tags.filter { !pinned.contains(SearchText.key($0)) },
+                    id: \.self) { tag in
+                TagRow(name: tag, isPinned: false)
             }
         }
     }
 }
 
+// MARK: - Tag Row Component
+/// A row of Pinned Tags or Most-Used Tags. Laid out as SavedSearchRow — the ellipsis an overlay
+/// on the title, reserved for by a trailing inset only while it shows — with the same menu on
+/// the ellipsis and a secondary click.
+private struct TagRow: View {
+    /// The spelling shown. A String rather than a SidebarTag, which compares by key: SwiftUI
+    /// passes over a row whose inputs are all equal, so a pin respelled in place (a rename
+    /// that changes only case) would go on showing its old spelling.
+    let name: String
+    let isPinned: Bool
+
+    private var tag: SidebarTag { SidebarTag(name) }
+
+    @Environment(DataCoordinator.self) private var dataCoordinator
+
+    /// Hover state, which shows the options button, as ListRow's.
+    @State private var isHovered = false
+    /// Required by the row proxy's interface; a tag row never becomes a drop target.
+    @State private var isDropTargeted = false
+
+    /// The row proxy's list identity, unused by a row that takes no drops.
+    private static let proxyID = UUID()
+
+    var body: some View {
+        Label {
+            /// The list titles' ceiling (truncateListName); narrower, the row truncates sooner.
+            Text(truncateListName(name))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.trailing, isHovered ? RowAccessory.slotWidth + 4 : 0)
+                .animation(nil, value: isHovered)
+                .overlay(alignment: .trailing) {
+                    if isHovered {
+                        RowOptionsButton(help: "Tag Options") { menuItems() }
+                    }
+                }
+        } icon: {
+            /// The one sidebar glyph drawn filled: pinned tags against Most-Used Tags' outline.
+            Image(systemName: isPinned ? ViewGlyphs.tag.filled : ViewGlyphs.tag.outline)
+        }
+        .tag(SidebarRow.item(.tag(tag)))
+        .contextMenu { menuItems() }
+        /// The list rows' full-row hover tracking (see ListRow), with drops turned off.
+        .overlay(
+            ListRowDropTarget(listID: Self.proxyID, listName: name, dataCoordinator: dataCoordinator,
+                              isDropTargeted: $isDropTargeted, isHovered: $isHovered, acceptsDrops: false)
+                .frame(width: 0, height: 0))
+    }
+
+    /// Shared by the context menu and the ellipsis, as ListRow's are.
+    @ViewBuilder
+    private func menuItems() -> some View {
+        Button(isPinned ? "Unpin Tag" : "Pin Tag") { TagActions.togglePin(tag) }
+        Button("Edit Tag Name…") { TagActions.rename(tag) }
+        Button("Delete Tag") { TagActions.delete(tag) }
+        Divider()
+        Button("View All Tags…") { TagActions.viewAll() }
+    }
+}
+
 // MARK: - Tag Rows
-/// The Tags section's rows: the `limit` most-used tags (SidebarTags.mostUsed), none while the
-/// section is hidden (limit 0). Held here rather than in TagsSection so the sidebar can leave the
-/// section out while it is empty, and so the recount triggers (SidebarTagRecount) sit on the List,
-/// which is always on screen, not on rows that may not be.
+/// Most-Used Tags' rows: the `limit` most-used tags not pinned (SidebarTags.mostUsed), none while
+/// the section is hidden (limit 0). Held here rather than in TagsSection so the sidebar can leave
+/// the section out while it is empty, and so the recount triggers (SidebarTagRecount) sit on the
+/// List, which is always on screen, not on rows that may not be.
 @MainActor
 @Observable
 private final class SidebarTagRows {
@@ -929,6 +944,9 @@ private final class SidebarTagRows {
     /// Whether there are any rows, read by LeftSidebar's body on its own, so a change of tags that
     /// leaves some invalidates only TagsSection.
     private(set) var hasTags = false
+    /// The order the rows were ranked in, which titles the section ("Most-Used Tags" or
+    /// "Most-Recent Tags"). Set with each recount; an equal write notifies nothing.
+    private(set) var order = Preferences.sidebarTagOrder
 
     @ObservationIgnored private var limit = 0
     @ObservationIgnored private var recountPending = false
@@ -937,7 +955,13 @@ private final class SidebarTagRows {
 
     func recount(limit: Int, in coordinator: DataCoordinator) {
         self.limit = limit
-        let ranked = limit > 0 ? SidebarTags.mostUsed(limit, in: coordinator) : []
+        let pinned = PinnedTagStore.shared.keys
+        order = Preferences.sidebarTagOrder
+        let ranked: [String] = switch (limit > 0, order) {
+        case (false, _): []
+        case (true, .mostUsed): SidebarTags.mostUsed(limit, excluding: pinned, in: coordinator)
+        case (true, .mostRecent): SidebarTags.mostRecent(limit, excluding: pinned, in: coordinator)
+        }
         guard ranked != tags else { return }
         /// The first fill, as the sidebar appears, lands at once; later changes animate.
         if tags.isEmpty {
@@ -964,11 +988,15 @@ private final class SidebarTagRows {
     }
 }
 
-/// Keeps SidebarTagRows current: on appearing, when the section's length changes, and when the
-/// films change. A modifier of its own so that the film counts it reads invalidate only this.
+/// Keeps SidebarTagRows current: on appearing, when the section's length changes, when the films
+/// change, and when a tag is pinned or unpinned. A modifier of its own so that the film counts
+/// and pins it reads invalidate only this.
 private struct SidebarTagRecount: ViewModifier {
     /// The section's length, 0 while it is hidden.
     let limit: Int
+
+    /// Most-used or most-recent (Preferences.sidebarTagOrder): a change reorders at once.
+    @AppStorage(preference: Preferences.sidebarTagOrderKey) private var order: Int
 
     @Environment(DataCoordinator.self) private var dataCoordinator
 
@@ -976,8 +1004,10 @@ private struct SidebarTagRecount: ViewModifier {
         content
             .onAppear { recount() }
             .onChange(of: limit) { recount() }
+            .onChange(of: order) { recount() }
             .onChange(of: dataCoordinator.isInitialized) { recount() }
             .onChange(of: dataCoordinator.totalFilmCount) { recount() }
+            .onChange(of: PinnedTagStore.shared.keys) { recount() }
             .onFilmEvent { event in
                 if case .releaseChanged = event { return }
                 SidebarTagRows.shared.scheduleRecount(in: dataCoordinator)
@@ -1587,4 +1617,86 @@ private struct ListRowDropTarget: NSViewRepresentable, Loggable {
             NotificationCenter.default.post(name: .dismissDragPreviewImmediately, object: nil)
         }
     }
+}
+
+// MARK: - List Actions
+/// What a user list's menus do: its sidebar row's (secondary click and ellipsis) and the menu
+/// bar's List menu. Each applies the confirmation preferences as the row always has.
+@MainActor
+enum ListActions: Loggable {
+    nonisolated static let logTag = "[ListActions]"
+
+    static func perform(_ action: ListRowAction, on listID: UUID, coordinator dataCoordinator: DataCoordinator) {
+        switch action {
+        case .edit:
+            /// Request the list manager sheet for editing via UICommand;
+            /// SheetHostView handles the actual presentation.
+            Self.log("Requesting list edit sheet for list: \(listID)")
+            AppEventBus.shared.send(.ui(.editList(listID)))
+        case .duplicate:
+            AppEventBus.shared.send(.ui(.duplicateList(listID)))
+        case .clearContents:
+            clearContents(listID, dataCoordinator)
+        case .deleteContents:
+            deleteContents(listID, dataCoordinator)
+        case .delete:
+            delete(listID, dataCoordinator)
+        }
+    }
+
+    /// Resolves a list's current display name from the same cached array the rows are
+    /// built from. Returns nil — and so aborts the pending action — if the list was
+    /// removed between the menu gesture and the action firing.
+    private static func listName(for listID: UUID, _ dataCoordinator: DataCoordinator) -> String? {
+        dataCoordinator.cachedLists.first { $0.listID == listID }?.listName
+    }
+
+    private static func clearContents(_ listID: UUID, _ dataCoordinator: DataCoordinator) {
+        /// Gated by the "list contents" class of the list-edit confirmation preference.
+        if !Preferences.shouldConfirmListContents {
+            Task {
+                _ = ListManager.clearListContents(listID, coordinator: dataCoordinator)
+            }
+        } else {
+            guard let name = listName(for: listID, dataCoordinator) else { return }
+            AppEventBus.shared.sendAlert(.confirmClearContents(
+                listID: listID, listName: name))
+        }
+    }
+    
+    private static func deleteContents(_ listID: UUID, _ dataCoordinator: DataCoordinator) {
+        /// Film IDs are fetched synchronously, since getFilmIDsForListDeletion reads MemoryStore
+        /// directly.
+        let filmIDs = ListManager.getFilmIDsForListDeletion(listID, coordinator: dataCoordinator)
+
+        guard !filmIDs.isEmpty else {
+            /// The list became empty since the menu gesture, for example after a prior deletion.
+            Self.log("deleteContents: list \(listID) has no films — operation skipped")
+            return
+        }
+
+        if !Preferences.confirmGalleryDelete {
+            Task {
+                await ListManager.deleteListContents(listID, filmIDs: filmIDs, coordinator: dataCoordinator)
+            }
+        } else {
+            guard let name = listName(for: listID, dataCoordinator) else { return }
+            AppEventBus.shared.sendAlert(.confirmDeleteContents(
+                listID: listID, listName: name))
+        }
+    }
+    
+    private static func delete(_ listID: UUID, _ dataCoordinator: DataCoordinator) {
+        /// Gated by the "list structure" class of the list-edit confirmation preference.
+        if !Preferences.shouldConfirmListStructure {
+            Task {
+                _ = ListManager.deleteList(listID, coordinator: dataCoordinator)
+            }
+        } else {
+            guard let name = listName(for: listID, dataCoordinator) else { return }
+            AppEventBus.shared.sendAlert(.confirmRemoveList(
+                listID: listID, listName: name))
+        }
+    }
+
 }

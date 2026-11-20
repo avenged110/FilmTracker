@@ -322,10 +322,10 @@ extension DebugHarness {
                 /// Visualizations always has something to say about a non-empty library, and the
                 /// corpus is ranked above so the Hall of Fame does too.
                 r.check("export-includes-hall-of-fame",
-                        text.contains(ReportsCategory.hallOfFame.displayName),
+                        text.contains(InsightsCategory.hallOfFame.displayName),
                         "the Hall of Fame sheet is missing from the assembled document")
                 r.check("export-includes-statistics",
-                        text.contains(ReportsCategory.dataVisualizations.displayName),
+                        text.contains(InsightsCategory.insights.displayName),
                         "the statistics sheet is missing from the assembled document")
                 r.check("export-includes-library-table",
                         text.contains(LibraryTableLayout.standard.sectionTitle),
@@ -340,7 +340,7 @@ extension DebugHarness {
                 let headings = (0..<assembled.pageCount).compactMap {
                     assembled.page(at: $0)?.string?.split(separator: "\n").first.map(String.init)
                 }
-                let superseded = [ReportsCategory.costTracker, .priceTracker, .releaseWishlist]
+                let superseded = [InsightsCategory.costTracker, .priceTracker, .releaseWishlist]
                     .map(\.displayName).filter { name in headings.contains { $0.hasPrefix(name) } }
                 r.check("export-omits-superseded-sheets", superseded.isEmpty,
                         superseded.isEmpty
@@ -494,9 +494,9 @@ extension DebugHarness {
             entry(64, .purchased(.uhd4K), rating: 0),
         ]
 
-        let data = ReportsExportData(category: .hallOfFame,
+        let data = InsightsExportData(category: .hallOfFame,
                                      hallOfFameFilms: films)
-        guard case let .table(section)? = ReportsPDFExporter.sheet(for: data) else {
+        guard case let .table(section)? = InsightsPDFExporter.sheet(for: data) else {
             r.check("hof-section-built", false, "the Hall of Fame section came back nil")
             return
         }
@@ -734,7 +734,7 @@ extension DebugHarness {
     }
 
 
-    // MARK: - Reports Statistics Scenario
+    // MARK: - Insights Statistics Scenario
 
     /// Pins the population each Data Visualizations percentage is a share OF, and the
     /// determinism of the tracker orderings the PDF prints.
@@ -903,7 +903,7 @@ extension DebugHarness {
         /// particular order. Two of the three purchases here share a purchase date, so only
         /// the title tiebreak can make the resulting order the same twice.
         ///
-        /// The check drives the pair `ReportTrackers` calls to fill the on-screen tab, which is
+        /// The check drives the pair `InsightsTrackers` calls to fill the on-screen tab, which is
         /// where this rule ships. The PDF export does not print a cost sheet.
         func sortedCostRows(_ films: [FilmSnapshot]) -> [ReleaseData] {
             ReleaseData.sorted(ReleaseData.costTrackerRows(films: films),

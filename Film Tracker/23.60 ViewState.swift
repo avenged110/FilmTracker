@@ -416,12 +416,12 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     case filmQueue
     case unwatched(UnwatchedCategory)
     case recents(RecentsCategory)
-    case reports(ReportsCategory)
+    case insights(InsightsCategory)
     case imports(ImportsCategory)
     case smartList(SmartListType)
     case search
     case savedSearch(UUID)
-    /// The films carrying one tag, from the sidebar's Tags section (SidebarTags).
+    /// The films carrying one tag, from the sidebar's Pinned Tags or Most-Used Tags (SidebarTags).
     case tag(SidebarTag)
 
     /// There is no `listID` accessor. Consumers that need a list ID already match `case .list(let id)` in a
@@ -464,7 +464,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     var purchaseFormatScope: ReleaseFormat? { smartListType?.purchaseFormat }
 
     /// The SF Symbol for the GalleryTitleBar glyph of this view. Recents and Unwatched use their active tab's glyph.
-    /// Reports and Imports never show this glyph, but the switch is exhaustive, and the compiler checks it.
+    /// Insights and Imports never show this glyph, but the switch is exhaustive, and the compiler checks it.
     var glyph: String {
         switch self {
         case .allFilms: return ViewGlyphs.allFilms.filled
@@ -472,19 +472,19 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .list: return ViewGlyphs.userList.outline
         case .search: return ViewGlyphs.search.outline
         case .savedSearch: return ViewGlyphs.savedSearch.outline
-        case .tag: return ViewGlyphs.tag.outline
+        case .tag: return ViewGlyphs.tag.filled
         case .recents(let category): return category.glyph
         /// The Queue's tabs share this one identifier; GalleryTitleBar swaps in the selected tab's glyph.
         case .filmQueue: return ViewGlyphs.filmQueue.filled
         case .unwatched(let category): return category.glyph
-        case .reports: return ViewGlyphs.reports.filled
+        case .insights: return ViewGlyphs.insights.filled
         case .imports: return ViewGlyphs.importsTitleBarFallback.outline
         }
     }
 
     /// The key under which this view's sort and filter state is stored in Preferences.viewSortStates, or nil
     /// for views that do not store it. Those are `.list` (persisted in the database, under its own rules),
-    /// `.reports` and `.imports` (not gallery-backed), and `.search` (always transient). loadStateSync,
+    /// `.insights` and `.imports` (not gallery-backed), and `.search` (always transient). loadStateSync,
     /// saveStateImmediately, and snapshotAllViewSortStates all use this key.
     ///
     /// This is the base key only. The Film Queue's four tabs narrow the films without changing the
@@ -504,7 +504,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         /// would let each tag's cached state overwrite the others' on disk. A tag that leaves the
         /// library leaves its small entry behind.
         case .tag(let tag): return "tag.\(tag.key)"
-        case .list, .reports, .imports, .search: return nil
+        case .list, .insights, .imports, .search: return nil
         }
     }
 
@@ -522,7 +522,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         switch self {
         case .recents, .smartList, .filmQueue, .unwatched, .savedSearch, .tag:
             return true
-        case .allFilms, .list, .reports, .imports, .search:
+        case .allFilms, .list, .insights, .imports, .search:
             return false
         }
     }
@@ -534,7 +534,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .filmQueue: return "FilmQueue"
         case .unwatched(let category): return "Unwatched(\(category.rawValue))"
         case .recents(let category): return "Recents(\(category.rawValue))"
-        case .reports(let category): return "Reports(\(category.rawValue))"
+        case .insights(let category): return "Insights(\(category.rawValue))"
         case .imports(let category): return "Imports(\(category.rawValue))"
         case .smartList(let type): return "SmartList(\(type.rawValue))"
         case .search: return "Search"
@@ -558,7 +558,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .libraryItem(.search):     return .search
         case .libraryItem(.unwatched):  return .unwatched(UnwatchedState.shared.selectedCategory)
         case .libraryItem(.recents):    return .recents(RecentsState.shared.selectedCategory)
-        case .libraryItem(.reports):    return .reports(ReportsState.shared.selectedCategory)
+        case .libraryItem(.insights):    return .insights(InsightsState.shared.selectedCategory)
         case .libraryItem(.imports):    return .imports(ImportsState.shared.selectedCategory)
         case .libraryItem(.filmQueue): return .filmQueue
         case .list(let id):             return .list(id)
@@ -645,15 +645,16 @@ struct ViewStateKey: Hashable, Sendable {
 /// on one without affecting the others, and collapsing them would silently reintroduce the same
 /// one-flag-serves-two-purposes coupling this type exists to avoid.
 struct ViewCapabilities: Sendable {
-    /// Whether the RightSidebar and StatusBar chrome is shown beside this view's content. Reports hides it
-    /// while its Data Visualizations tab is displayed, and Imports never shows it.
+    /// Whether the RightSidebar is shown beside this view's content. Insights hides it while its Data
+    /// Visualizations tab is displayed, and Imports never shows it.
     var showsGalleryChrome: Bool = true
     /// The StatusBar rows this view shows when the bar is visible: the classic count row, a summary row, or both
-    /// stacked (summary on top). Only the Reports Purchase Tracker tab shows a summary today. See StatusBar.swift.
-    var statusBar: StatusBarContent = .classic
+    /// stacked (summary on top). nil means the view never shows the bar (InsightsView's Insights tab).
+    /// See StatusBar.swift.
+    var statusBar: StatusBarContent? = .classic
     /// Whether this view can be a destination for search-exit selection preservation
     /// (MainView.handleSearchContentChange). It must be a gallery-backed view whose membership can be checked
-    /// directly. Search, Reports, and Imports are excluded.
+    /// directly. Search, Insights, and Imports are excluded.
     var isValidSearchExitDestination: Bool = true
     /// There is no treatsEmptyAsValidState flag here. ViewIdentifier.treatsEmptyAsValidState answers that
     /// question, keyed off the view the pipeline reflects rather than the sidebar item. A copy here would be
@@ -670,12 +671,12 @@ struct ViewCapabilities: Sendable {
     /// Whether the Filter menu is disabled in its entirety for this view.
     var filterMenuFullyDisabled: Bool = false
     /// Whether this view can draw sort-derived section dividers, and so whether its Show and Hide pair means
-    /// anything. It is false only for Reports and Imports, which are not gallery-backed. They have no film
+    /// anything. It is false only for Insights and Imports, which are not gallery-backed. They have no film
     /// list to band and no ViewState to store the choice in. Every gallery-backed view, including the
     /// fixed-sort Recents tabs, is true.
     var supportsSectionDividers: Bool = true
     /// Whether Cmd+A and Select All select every film in this view. It is true for every gallery-backed view,
-    /// and false for Reports and Imports.
+    /// and false for Insights and Imports.
     var supportsMultiSelection: Bool = true
     /// Whether Tab-key focus routing targets this view's gallery grid/list directly.
     var routesTabFocusToGallery: Bool = true
@@ -706,11 +707,12 @@ extension SidebarItem {
                 supportsListGridToggle: RecentsState.shared.selectedCategory != .summary,
                 sortMenuFullyDisabled: true)
 
-        case .libraryItem(.reports):
+        case .libraryItem(.insights):
             return ViewCapabilities(
-                showsGalleryChrome: ReportsState.shared.displayedCategory != .dataVisualizations,
+                showsGalleryChrome: InsightsState.shared.displayedCategory != .insights,
                 statusBar: {
-                    switch ReportsState.shared.displayedCategory {
+                    switch InsightsState.shared.displayedCategory {
+                    case .insights: return nil
                     case .costTracker: return .summaryAndClassic(.purchaseTotals)
                     case .hallOfFame: return .summaryAndClassic(.hallOfFameTotals)
                     default: return .classic
@@ -727,6 +729,7 @@ extension SidebarItem {
         case .libraryItem(.imports):
             return ViewCapabilities(
                 showsGalleryChrome: false,
+                statusBar: .summaryAndClassic(.importActivity),
                 isValidSearchExitDestination: false,
                 supportsListGridToggle: false,
                 sortMenuFullyDisabled: true,
@@ -940,7 +943,7 @@ final class GalleryScrollIntent {
     /// makeNSView.
     ///
     /// It is false for the grid-list toggle, whose destination style mounts a fresh grid or list, and for
-    /// Show in List from Reports or Imports, where the gallery mounts fresh.
+    /// Show in List from Insights or Imports, where the gallery mounts fresh.
     ///
     /// It is true wherever the one shared gallery (GalleryReuse) stays mounted and is the destination:
     ///
@@ -1186,7 +1189,7 @@ final class ViewStateManager: Loggable {
 
     /// Banks the on-screen gallery's position under its displayed key. Called by AppState.navigate before
     /// every sidebar flip, while the outgoing gallery is certainly still mounted. A switch banks the same
-    /// way, but not every departure switches in time: Reports is switched to by the outgoing GalleryView's
+    /// way, but not every departure switches in time: Insights is switched to by the outgoing GalleryView's
     /// onChange, which SwiftUI does not always run before removing it, and Imports switches from its own
     /// onAppear, after the gallery is gone. Without this, those departures fell back to dismantleNSView,
     /// which cannot record a position at the very top.
@@ -1280,7 +1283,7 @@ final class ViewStateManager: Loggable {
     /// Arms a restore for a gallery mounting fresh into `viewID`, when no switch-driven intent is already
     /// outstanding.
     ///
-    /// Not every arrival passes through switchToViewSync as a real change. Reports is switched to only by the
+    /// Not every arrival passes through switchToViewSync as a real change. Insights is switched to only by the
     /// outgoing GalleryView's onChange, which SwiftUI does not always run before removing that view. So a
     /// round trip can return to a view that is still considered active, and nothing gets armed. A gallery
     /// remounting in its own view, such as a filter that emptied it and was then cleared, is another such
@@ -1879,8 +1882,8 @@ final class ViewStateManager: Loggable {
             state.sortDirection = .ascending
             return state
 
-        case .reports, .imports, .search:
-            /// These views don't use persisted ViewState: Reports and Imports are not gallery-backed and
+        case .insights, .imports, .search:
+            /// These views don't use persisted ViewState: Insights and Imports are not gallery-backed and
             /// manage their own data independently, and Search is always transient (in-session changes are
             /// allowed but never persisted).
             return ViewState()
@@ -1938,8 +1941,8 @@ final class ViewStateManager: Loggable {
             )
             Self.log("Saved list \(listID.uuidString.prefix(8)) state: \(settings)")
 
-        case .reports, .imports:
-            /// Reports and Imports are not gallery-backed and manage their own data / ordering; there is no
+        case .insights, .imports:
+            /// Insights and Imports are not gallery-backed and manage their own data / ordering; there is no
             /// per-view sort/filter state to persist here.
             break
 
@@ -1986,11 +1989,11 @@ final class ViewStateManager: Loggable {
             return
         }
 
-        /// Imports and Reports views manage their own data independently of the film-loading pipeline. Calling
+        /// Imports and Insights views manage their own data independently of the film-loading pipeline. Calling
         /// loadFilms for these views is a no-op that unnecessarily clobbers coordinator.films/filmCount and
         /// produces a misleading "Loaded 0 films" log entry.
         if case .imports = activeView { return }
-        if case .reports = activeView { return }
+        if case .insights = activeView { return }
 
         coordinator.loadFilms(
             viewID: activeView,

@@ -281,6 +281,20 @@ final class CurrentDay {
 
 // MARK: - Date Parsing and Formatting Utilities
 
+/// The earliest date the app accepts anywhere: January 1, 1910. Every year Stepper starts here (CustomDateStepper.defaultYearRange),
+/// date entry that is not a Stepper clamps to it, imports clamp to it, and the Insights figures read an older stored date as this day,
+/// so one mistyped year cannot stretch a chart across centuries. A field with its own, later floor (a release's format floor) keeps it.
+nonisolated enum DateFloor {
+    static let year = 1910
+    /// Midnight, January 1, 1910, in the storage formatters' calendar.
+    static let date: Date = StorageDateFormatters.calendar.date(from: DateComponents(year: year, month: 1, day: 1)) ?? .distantPast
+    /// `date`, or the floor when it is earlier.
+    static func clamp(_ date: Date) -> Date { max(date, Self.date) }
+    /// A year, raised to the floor.
+    static func clamp(year: Int) -> Int { max(year, Self.year) }
+}
+
+
 /// The two date spellings the database stores, configured once.
 ///
 /// Readers and writers across the app share these formatters. The agreement between them
@@ -1146,7 +1160,7 @@ nonisolated struct PrivateSymbol {
 /// state object it reads and writes, so each is a thin wrapper supplying those.
 ///
 /// Six wrappers use this today: the Recents, Unwatched, Film Queue and smart-list variant
-/// pickers in GalleryTitleBar, plus the Reports and Imports tab pickers.
+/// pickers in GalleryTitleBar, plus the Insights view and Imports tab pickers.
 ///
 /// Each wrapper keeps its own reference to its state object rather than letting the title
 /// bar read the value and pass it down: the read then registers against the wrapper's
@@ -1174,7 +1188,7 @@ struct SubcategoryPicker<Value: Hashable & Sendable, Style: PickerStyle>: View {
     /// fade — so everything a sub-tab change triggers synchronously (the state write, the
     /// SwiftUI update pass it schedules, and any run-loop-deferred content swap) competes with
     /// the remaining fade frames, which is the "menu closes in three frames" stutter on the
-    /// Reports tabs. Measured with a standalone probe sampling the menu window's alpha from the
+    /// Insights tabs. Measured with a standalone probe sampling the menu window's alpha from the
     /// window server on a background thread: a 400 ms load in the Picker's setter froze the
     /// fade at alpha 0.38; the same load in an NSPopUpButton action left every frame intact.
     ///
@@ -2039,7 +2053,7 @@ enum ShowInListNavigation: Loggable {
         /// A move from one gallery-backed item to another, search included, keeps the gallery on
         /// screen, so the destination is that same instance's update pass, not a fresh makeNSView.
         /// The destination (a list or smart list) is always a shared item; the source may not be.
-        /// From Reports or Imports this stays false: the gallery mounts fresh and its makeNSView
+        /// From Insights or Imports this stays false: the gallery mounts fresh and its makeNSView
         /// claims the intent.
         let landsInSharedGallery = GalleryReuse.isSharedHostItem(appState.selectedSidebarItem)
 

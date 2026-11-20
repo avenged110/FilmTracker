@@ -107,8 +107,8 @@ enum FilmDigitalSource {
 
     /// The FilmSheet picker's option list. The leading "" is the unset row.
     ///
-    /// Ascending by quality, which is NOT the order the Reports tab charts these in — see
-    /// `RPTabDataViz`'s source distribution, which lists them descending and composes the
+    /// Ascending by quality, which is NOT the order the Insights tab charts these in — see
+    /// `INTabDataViz`'s source distribution, which lists them descending and composes the
     /// remastered forms. Two orderings over one vocabulary is exactly why the vocabulary
     /// lives here rather than inside either of them.
     static let pickerOptions: [String] = [
@@ -142,7 +142,7 @@ enum FilmDigitalSource {
 /// Distinct from `Release.hasSubtitles`, which is a `Bool` describing one physical disc.
 /// This field describes the user's viewing copy, which may be a rip.
 ///
-/// The Reports tab compares these LOWERCASED, against a value it lowercases first, so its
+/// The Insights tab compares these LOWERCASED, against a value it lowercases first, so its
 /// comparisons are case-insensitive while the picker writes the canonical casing here.
 /// `matches(_:_:)` is the single expression of that rule, so a consumer cannot accidentally
 /// compare a lowercased field against a canonical tag and silently never match.
@@ -158,7 +158,7 @@ enum FilmSubtitles {
     /// The tags that affirm subtitles are present in some form.
     static let affirmativeTags: Set<String> = [yes, onDiscOnly, digitalRipOnly]
 
-    /// Case-insensitive equality against a stored tag. The Reports tab reads this field
+    /// Case-insensitive equality against a stored tag. The Insights tab reads this field
     /// from data that may predate the picker's current casing, so it compares loosely;
     /// this is that comparison's one definition.
     static func matches(_ stored: String, _ tag: String) -> Bool {

@@ -706,8 +706,8 @@ enum AddReleaseRequest: Equatable, Sendable {
     /// so what the menu shows is what the key does.
     ///
     /// KeyboardManager handles these keys and consumes them whenever a FilmSheet is open, before AppKit
-    /// matches menu key equivalents. ⌘N and ⌥⌘N are also File menu shortcuts (Create New List…,
-    /// Duplicate List), which a sheet disables, so the shortcuts never reach either menu.
+    /// matches menu key equivalents. ⌘N is also a menu shortcut (File > Create New List…), which a sheet disables, so the
+    /// shortcut never reaches the menu.
     private var binding: (key: Character, modifiers: NSEvent.ModifierFlags) {
         switch self {
         case .format(.uhd4K):   ("n", [.option, .command])

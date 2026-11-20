@@ -9,7 +9,7 @@ import AppKit
 
 struct GalleryTitleBar: View {
     /// The category picker's width and its inset from the title bar's leading edge —
-    /// shared with the Reports and Imports title bars, which carry the same picker.
+    /// shared with the Insights view and Imports title bars, which carry the same picker.
     static let pickerWidth: CGFloat = 220
     static let pickerLeading: CGFloat = 12
 
@@ -81,7 +81,7 @@ struct GalleryTitleBar: View {
 
         /// A saved search's Edit and Remove controls live in the sidebar menu and the menu bar. Search's Save
         /// Search button leads the row instead.
-        case .allFilms, .list, .reports, .imports, .search, .savedSearch, .tag:
+        case .allFilms, .list, .insights, .imports, .search, .savedSearch, .tag:
             EmptyView()
         }
     }
@@ -127,7 +127,7 @@ struct GalleryTitleBar: View {
             /// and Upcoming Releases; see ViewIdentifier.hasFixedSort). It uses totalFilmCount, not filmCount,
             /// so the sort button stays enabled when filters leave no films.
             ///
-            /// It checks viewIdentifier directly, not the capability flag. The flag also covers Reports and
+            /// It checks viewIdentifier directly, not the capability flag. The flag also covers Insights and
             /// Imports for MenuBar's Sort By, which this button does not disable. The Film Queue's Sort and
             /// Filter menus are enabled whenever it has films.
             ///

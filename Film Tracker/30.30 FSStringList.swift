@@ -1480,7 +1480,7 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
     }
 
     private static func response(_ rows: [String]) -> NSSuggestionItemResponse<String> {
-        NSSuggestionItemResponse(items: rows.map { NSSuggestionItem(representedValue: $0, title: $0) })
+        NSSuggestionItemResponse(items: rows.map { NSSuggestionItem(representedValue: $0, title: truncateListName($0)) })
     }
 
     /// Highlighting a row fills the field with it, as the search field's menu does.
@@ -1672,6 +1672,9 @@ private final class FocusClaimingTextField: NSTextField, FilmSheetReturnHandling
 private struct StringListRow: View {
 
     let text: String
+    /// The list's suggestions, read for their vocabulary: a tag is shown under the list titles'
+    /// ceiling (truncateListName), as everywhere else tags are named.
+    @Environment(\.stringListSuggestions) private var suggestions
     let isEditing: Bool
     /// Changes on every edit begin; see `ReorderableStringList.editSession`.
     let editSession: Int
@@ -1752,7 +1755,7 @@ private struct StringListRow: View {
                 )
                 .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(text)
+                Text(suggestions?.vocabulary == .tags ? truncateListName(text) : text)
                     .font(.system(size: 12))
                     .lineLimit(1)
                     .truncationMode(.tail)

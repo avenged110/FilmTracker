@@ -215,7 +215,7 @@ enum DebugHarness: Loggable {
         case "pdf":         return pdfScenarios
         case "dataviz":     return dataVizScenarios + dataVizPerfScenarios
         /// Not in `all`: real-main-window regressions for gallery navigation, view switching,
-        /// search, scroll memory, the Recents summary, the Reports tables and the Film Queue.
+        /// search, scroll memory, the Recents summary, the Insights tables and the Film Queue.
         /// Run after a change to any of them. Each seeds the state it asserts about, so they run
         /// in any order.
         case "ui":          return ["gallery-integrity", "coast-stop", "sidebar-tab-switch",

@@ -680,8 +680,7 @@ private struct MultiFilmButtonBar: View {
             .disabled(!owner.canConfirm)
             .focusable(false)
         }
-        .padding(.vertical, 12)
-        .padding(.horizontal, 20)
+        .sheetBottomBar()
         .alert(Self.title(of: owner.pendingAlert),
                isPresented: Binding(get: { owner.pendingAlert != nil },
                                     set: { if !$0 { owner.pendingAlert = nil } }),

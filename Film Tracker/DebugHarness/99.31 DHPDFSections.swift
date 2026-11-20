@@ -243,7 +243,7 @@ extension DebugHarness {
     /// The Export tab's "Include:" picker is a `ForEach` over `LibraryPDFSection.allCases`
     /// labeled by `displayName`, so a section reaches the user only if it is a case AND
     /// names itself. Neither is something the compiler checks — a case whose `displayName`
-    /// fell through to the `reportsCategory?.displayName ?? ""` default would appear in the
+    /// fell through to the `insightsCategory?.displayName ?? ""` default would appear in the
     /// menu as a blank, selectable row.
     ///
     /// The ORDER matters too, and for a second reason: `LibraryPDFExporter.export` filters
@@ -260,12 +260,12 @@ extension DebugHarness {
         r.check("picker-no-blank-rows", names.allSatisfy { !$0.isEmpty },
                 "a section would appear in the picker as a blank row: \(names)")
 
-        /// The two per-film detail sections belong to no ReportsView tab; reporting one
+        /// The two per-film detail sections belong to no InsightsView tab; reporting one
         /// would send the exporter down the report-sheet path and draw the wrong table.
         r.check("picker-detail-sections-uncategorized",
-                LibraryPDFSection.viewingHistory.reportsCategory == nil
-                    && LibraryPDFSection.discReleases.reportsCategory == nil,
-                "a detail section claims a ReportsView category")
+                LibraryPDFSection.viewingHistory.insightsCategory == nil
+                    && LibraryPDFSection.discReleases.insightsCategory == nil,
+                "a detail section claims a InsightsView category")
     }
 
     // MARK: - Column Fit

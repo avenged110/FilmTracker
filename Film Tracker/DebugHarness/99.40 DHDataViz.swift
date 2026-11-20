@@ -1,7 +1,7 @@
 // MARK: - DHDataViz.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Harness scenarios for the redesigned Data Visualizations tab.
+/// Harness scenarios for the redesigned Insights tab.
 ///
 ///   dataviz-insights — LibraryInsights and ViewingPeriodStatistics against a hand-built
 ///                      fixture with known answers (a fixed `today`, so rotation, year-to-
@@ -525,8 +525,9 @@ extension DebugHarness {
                     /// Purchase dates: the stored dot form and the legacy dash form alike.
                     let dash = "\(Fmt.padded(year, 4))-\(Fmt.padded(month, 2))-\(Fmt.padded(day, 2))"
                     for purchase in [dot, dash] {
+                        /// Raised to DateFloor, as every Insights date is.
                         let expectedPurchase = parseDateWithFormatters(datePortion: purchase, dateString: purchase)
-                            .map { calendar.startOfDay(for: $0) }
+                            .map { DateFloor.clamp(calendar.startOfDay(for: $0)) }
                         let fastPurchase = LibraryStatistics.purchaseDay(purchase, calendar: calendar)
                         if expectedPurchase == fastPurchase { parseAgreements += 1 } else if parseDisagreements.count < 5 {
                             parseDisagreements.append("purchase \(purchase): formatters \(String(describing: expectedPurchase)) fast \(String(describing: fastPurchase))")
@@ -537,6 +538,12 @@ extension DebugHarness {
         }
         r.check("entry-parse-agrees-with-formatters", parseDisagreements.isEmpty,
                 "\(parseAgreements) agreements; first disagreements: \(parseDisagreements)")
+        /// Date Added before DateFloor counts in January 1910, on the fast path and the parser path alike.
+        let floorMonth = DateFloor.year * 12
+        let fastAdded = LibraryInsights.addedMonth("1019-05-10T12:00:00.000Z", calendar: calendar)
+        let slowAdded = LibraryInsights.addedMonth("1019-05-01T12:00:00.000Z", calendar: calendar)
+        r.check("added-month-date-floor", fastAdded == floorMonth && slowAdded == floorMonth,
+                "fast \(String(describing: fastAdded)), parser \(String(describing: slowAdded)), expected \(floorMonth)")
         /// Version codes and malformed spellings: the entry parser must either agree with
         /// the formatter chain or decline to it, never answer differently.
         let odd = ["2024.01.10.DC", "2024.01.10.th", "2024.01.10.", "2024.01.10..", "2024.1.10", "2024.01.1", "2024-01-10",
@@ -627,13 +634,13 @@ extension DebugHarness {
         var r = HarnessScenarioResult(scenario: "dataviz-pdf")
         let films = fixtureFilms() + standardCorpus(count: 160, seed: 0xB00C)
         let dataset = DVDataset(films: films, previousRecords: [], showInfoComplete: true, today: fixtureToday)
-        let data = ReportsExportData(category: .dataVisualizations, hallOfFameFilms: nil,
+        let data = InsightsExportData(category: .insights, hallOfFameFilms: nil,
                                      visualizations: dataset)
         guard let root = DebugSandbox.rootURL else {
             r.check("sandbox-root", false, "no sandbox root")
             return r
         }
-        guard case let .stack(stack)? = ReportsPDFExporter.sheet(for: data) else {
+        guard case let .stack(stack)? = InsightsPDFExporter.sheet(for: data) else {
             r.check("sheet-is-stack", false, "the sheet is missing or not a stack")
             return r
         }
@@ -805,21 +812,21 @@ extension DebugHarness {
         /// Waits until the mount cache reports `count` films, or gives up after ~3 s.
         func waitForCache(_ count: Int) async -> Bool {
             for _ in 0..<300 {
-                if ReportsState.shared.cachedVisualizations?.stats.totalFilms == count { return true }
+                if InsightsState.shared.cachedVisualizations?.stats.totalFilms == count { return true }
                 try? await Task.sleep(for: .milliseconds(10))
             }
             return false
         }
 
         // MARK: First visit: synchronous, so the page is there on the first layout.
-        let wasCached = ReportsState.shared.cachedVisualizations != nil
+        let wasCached = InsightsState.shared.cachedVisualizations != nil
         /// Implicitly unwrapped so it can be released: a hosting view taken out of the window
         /// but still referenced keeps its tab alive, subscribed to film events and applying
         /// passes, which the app's own view switch never does.
         var host: NSHostingView<TabHost>! = await mount()
         r.check("tab-first-visit-renders", documentHeight(host) > 2000, "document height \(documentHeight(host))")
         r.check("tab-first-visit-populates-cache",
-                await waitForCache(seeded), "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)) (was cached before mount: \(wasCached))")
+                await waitForCache(seeded), "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms)) (was cached before mount: \(wasCached))")
 
         // MARK: The page's AppKit-backed controls write through to the tab's state: the
         /// Compare checkbox turns the comparison off (so its year pop-up disables) and on
@@ -893,7 +900,7 @@ extension DebugHarness {
         let landed = await waitForCache(seeded + 5)
         for _ in 0..<6 { host.layoutSubtreeIfNeeded(); await oneTurn() }
         r.check("tab-event-burst-recalculates-in-background", landed,
-                "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 5)")
+                "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 5)")
         /// The five films' new counts, tags and Coming Up candidate touch several sections;
         /// SwiftUI re-evaluates only the ones whose inputs it cannot prove unchanged. No page
         /// height delta is asserted: several cards have a fixed or capped height (the Most
@@ -904,7 +911,7 @@ extension DebugHarness {
                 "\(DVCanvasPageView.rebuilds) page rebuilds after the pass; height \(heightBefore) → \(documentHeight(host))")
         r.check("tab-event-burst-page-intact", documentHeight(host) > 2000, "document height \(documentHeight(host))")
         r.check("tab-cached-count-matches-library",
-                ReportsState.shared.cachedVisualizations?.insights.totalViewings ==
+                InsightsState.shared.cachedVisualizations?.insights.totalViewings ==
                     LibraryInsights(films: coordinator.getAllFilms()).totalViewings, "")
 
         // MARK: Remount: seeded from the cache at once, reconciled in the background.
@@ -913,15 +920,15 @@ extension DebugHarness {
         await oneTurn()
         coordinator.importFilms(moreFilms(1, "WhileAway"))
         /// The view is gone, so the event it just missed leaves the cache one film behind.
-        r.check("tab-unmounted-view-ignores-events", ReportsState.shared.cachedVisualizations?.stats.totalFilms == seeded + 5,
-                "\(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms))")
+        r.check("tab-unmounted-view-ignores-events", InsightsState.shared.cachedVisualizations?.stats.totalFilms == seeded + 5,
+                "\(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms))")
         DVCanvasPageView.rebuilds = 0
         DataVisualizationsView.applications = 0
         host = await mount()
         r.check("tab-remount-seeds-from-cache", documentHeight(host) > 2000 && DVCanvasPageView.rebuilds >= 1,
                 "document height \(documentHeight(host)), \(DVCanvasPageView.rebuilds) rebuilds")
         r.check("tab-remount-reconciles-in-background", await waitForCache(seeded + 6),
-                "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 6)")
+                "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 6)")
         for _ in 0..<6 { host.layoutSubtreeIfNeeded(); await oneTurn() }
         r.check("tab-remount-page-intact", documentHeight(host) > 2000, "document height \(documentHeight(host))")
         /// The cache seed, then the reconcile's result: the library moved while away.
@@ -933,7 +940,7 @@ extension DebugHarness {
         await oneTurn()   /// the coalescing hop: the pass is now running
         window.contentView = nil
         r.check("tab-inflight-result-refreshes-cache", await waitForCache(seeded + 7),
-                "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 7)")
+                "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 7)")
         for _ in 0..<10 { await oneTurn() }
         r.check("tab-inflight-no-trap", true, "")
 
@@ -954,14 +961,14 @@ extension DebugHarness {
         // MARK: The launch prefetch fills an empty cache off the main thread, and never
         /// replaces one a visit has already filled.
         do {
-            ReportsState.shared.debugResetVisualizations()
-            ReportsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
+            InsightsState.shared.debugResetVisualizations()
+            InsightsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
             r.check("tab-prefetch-fills-cache", await waitForCache(seeded + 7),
-                    "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 7)")
-            ReportsState.shared.prefetchVisualizations(films: Array(coordinator.getAllFilms().dropLast()))
+                    "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms)), wanted \(seeded + 7)")
+            InsightsState.shared.prefetchVisualizations(films: Array(coordinator.getAllFilms().dropLast()))
             try? await Task.sleep(for: .milliseconds(500))
-            r.check("tab-prefetch-leaves-filled-cache", ReportsState.shared.cachedVisualizations?.stats.totalFilms == seeded + 7,
-                    "cache holds \(String(describing: ReportsState.shared.cachedVisualizations?.stats.totalFilms))")
+            r.check("tab-prefetch-leaves-filled-cache", InsightsState.shared.cachedVisualizations?.stats.totalFilms == seeded + 7,
+                    "cache holds \(String(describing: InsightsState.shared.cachedVisualizations?.stats.totalFilms))")
         }
 
         // MARK: A width change keeps the section at the top of the viewport where it was

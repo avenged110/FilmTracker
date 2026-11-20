@@ -131,12 +131,6 @@ struct MenuBar: Commands {
                 .keyboardShortcut("n", modifiers: .command)
                 .disabled(isSheetActive)
 
-                if case .list(let activeListID) = appState.selectedSidebarItem {
-                    Button("Duplicate List") {
-                        AppEventBus.shared.send(.ui(.duplicateList(activeListID))) }
-                    .keyboardShortcut("n", modifiers: [.option, .command])
-                    .disabled(isSheetActive)
-                }
                 Button("Create New Saved Search…") { SavedSearchActions.newSearch() }
                     .keyboardShortcut("s", modifiers: [.shift, .command])
                     .disabled(isSheetActive)
@@ -147,6 +141,10 @@ struct MenuBar: Commands {
                     AppEventBus.shared.sendCommand(.findDuplicates) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(filmCount == 0 || isSheetActive)
+
+                /// Always here, so tags can be pinned with no tag row in the sidebar to open it from.
+                Button("View All Tags…") { TagActions.viewAll() }
+                .disabled(isSheetActive)
 
                 Divider()
 
@@ -310,6 +308,56 @@ struct MenuBar: Commands {
                 .disabled(selectionCount == 0 || isSheetActive)
             }
             
+            // MARK: - "List" Menu: Create
+            /// Declared after "Film", so it follows it in the menu bar. The selected user
+            /// list's sidebar menu (ListActions), or, with a tag selected, the tag's
+            /// (TagActions); disabled otherwise. The three shortcuts are shared by the two sets,
+            /// which are never offered together, and ⌘D also by Search > Duplicate Saved Search…. ⌘D is also the FilmSheet's Duplicate This
+            /// Release, but menus are locked while a sheet is up (isSheetActive), and the
+            /// sheet's own handler (KeyboardManager) takes it first in any case.
+            CommandMenu("List") {
+                if case .tag(let tag) = appState.selectedSidebarItem {
+                    Button(PinnedTagStore.shared.isPinned(tag) ? "Unpin Tag" : "Pin Tag") {
+                        TagActions.togglePin(tag) }
+                    .keyboardShortcut("d", modifiers: .command)
+                    .disabled(isSheetActive)
+                    Button("Edit Tag Name\u{2026}") { TagActions.rename(tag) }
+                    .keyboardShortcut("r", modifiers: [.option, .command])
+                    .disabled(isSheetActive)
+                    Button("Delete Tag") {
+                        if typingInTextField { return }
+                        TagActions.delete(tag) }
+                    .keyboardShortcut(.delete, modifiers: [.option, .command])
+                    .disabled(isSheetActive)
+                } else {
+                    let listID = selectedUserListID
+                    let isEmpty = listID.map { id in
+                        (dataCoordinator.cachedLists.first { $0.listID == id }?.filmCount ?? 0) == 0 } ?? true
+                    Button("Clear List Contents") {
+                        if let listID { ListActions.perform(.clearContents, on: listID, coordinator: dataCoordinator) } }
+                    .disabled(listID == nil || isEmpty || isSheetActive)
+                    Button("Delete All List Contents from Library") {
+                        if let listID { ListActions.perform(.deleteContents, on: listID, coordinator: dataCoordinator) } }
+                    .disabled(listID == nil || isEmpty || isSheetActive)
+                    Divider()
+                    Button("Duplicate List") {
+                        if let listID { ListActions.perform(.duplicate, on: listID, coordinator: dataCoordinator) } }
+                    /// Bound only while a list is selected: a disabled item holding ⌘D, ahead of
+                    /// Search in the menu bar, would swallow Duplicate Saved Search's ⌘D.
+                    .keyboardShortcut(listID == nil ? nil : KeyboardShortcut("d", modifiers: .command))
+                    .disabled(listID == nil || isSheetActive)
+                    Button("Edit List Name\u{2026}") {
+                        if let listID { ListActions.perform(.edit, on: listID, coordinator: dataCoordinator) } }
+                    .keyboardShortcut("r", modifiers: [.option, .command])
+                    .disabled(listID == nil || isSheetActive)
+                    Button("Remove List") {
+                        if typingInTextField { return }
+                        if let listID { ListActions.perform(.delete, on: listID, coordinator: dataCoordinator) } }
+                    .keyboardShortcut(.delete, modifiers: [.option, .command])
+                    .disabled(listID == nil || isSheetActive)
+                }
+            }
+
             // MARK: - "Search" Menu: Create
             /// Declared after "Film", so it follows it in the menu bar.
             CommandMenu("Search") {
@@ -317,14 +365,15 @@ struct MenuBar: Commands {
                 .keyboardShortcut("f", modifiers: .command)
                 .disabled(isSheetActive)
                 SaveSearchMenuItem(isSheetActive: isSheetActive)
-                /// Only in a saved search's view, as Duplicate List is only in a list's (the
-                /// two share ⌥⌘N, so they must never be offered together).
+                /// Only in a saved search's view.
                 if case .savedSearch(let id) = appState.selectedSidebarItem {
                     Divider()
                     Button("Edit Saved Search…") { SavedSearchActions.edit(id) }
                         .disabled(isSheetActive)
+                    /// ⌘D, as Duplicate List and Pin Tag: the three selections never coexist, and
+                    /// Duplicate List gives up ⌘D while no list is selected.
                     Button("Duplicate Saved Search…") { SavedSearchActions.duplicate(id) }
-                        .keyboardShortcut("n", modifiers: [.option, .command])
+                        .keyboardShortcut("d", modifiers: .command)
                         .disabled(isSheetActive)
                     Button("Open in Search Field") { SavedSearchActions.openInSearchField(id) }
                         .disabled(isSheetActive)
@@ -434,6 +483,18 @@ struct MenuBar: Commands {
     /// keystrokes back to the field. Only keystrokes are redirected. A click on the menu item always takes the film action.
     /// The field-editor test is the same one KeyboardManager's Releases-tab Cmd+Delete path uses.
     @MainActor
+    /// The user list on screen, if one is.
+    private var selectedUserListID: UUID? {
+        if case .list(let id) = appState.selectedSidebarItem { return id }
+        return nil
+    }
+
+    /// True when ⌥⌘⌫ arrives while text is being edited: Remove List and Delete Tag then do
+    /// nothing, rather than act on the list or tag behind the field.
+    private var typingInTextField: Bool {
+        NSApp.currentEvent?.type == .keyDown && NSApp.keyWindow?.firstResponder is NSText
+    }
+
     private func forwardedToTextEditor(_ action: Selector) -> Bool {
         guard NSApp.currentEvent?.type == .keyDown,
               NSApp.keyWindow?.firstResponder is NSText else { return false }
@@ -512,7 +573,7 @@ struct ViewAsListMenu: View {
     @State private var isListView: Bool = false
 
     /// The menu is disabled when there are no films, a sheet is active, or
-    /// the active view is one that doesn't use a gallery (Reports, Imports).
+    /// the active view is one that doesn't use a gallery (Insights, Imports).
     @MainActor
     private var isMenuDisabled: Bool {
         filmCount == 0 || isSheetActive || !selectedSidebarItem.capabilities.supportsListGridToggle
@@ -644,7 +705,7 @@ struct SortByMenu: View {
             || SortMenuInputs.optionsLocked(coordinator: coordinator)
     }
 
-    /// True for views with no gallery at all (Reports, Imports): nothing in the menu applies,
+    /// True for views with no gallery at all (Insights, Imports): nothing in the menu applies,
     /// so `body` shows a disabled item in place of the submenu.
     @MainActor
     private var isMenuNotApplicable: Bool {
@@ -747,7 +808,7 @@ struct FilterItemsMenu: View {
             || FilterMenuInputs.menuDisabled(coordinator: dataCoordinator)
     }
 
-    /// True for views with no gallery at all (Reports, Imports), the same test SortByMenu's
+    /// True for views with no gallery at all (Insights, Imports), the same test SortByMenu's
     /// `isMenuNotApplicable` makes: `body` shows a disabled item in place of the submenu.
     @MainActor
     private var isMenuNotApplicable: Bool {
@@ -812,7 +873,7 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
     case allFilms = 1
     case unwatched = 2
     case recents = 3
-    case reports = 4
+    case insights = 4
     case filmQueue = 5
     case upForRotation = 6
     case purchased = 7
@@ -847,7 +908,7 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
         case .unpurchased:       return .unpurchased
         case .upcomingReleases:  return .upcomingReleases
         case .filteredLibrary:   return .filteredLibrary
-        case .allFilms, .unwatched, .recents, .reports, .filmQueue: return nil
+        case .allFilms, .unwatched, .recents, .insights, .filmQueue: return nil
         }
     }
 
@@ -863,13 +924,13 @@ enum TopLevelSidebarShortcut: Int, CaseIterable, Sendable {
         case .unwatched:
             LibraryTab.unwatched(.unwatched).open(appState: appState, immediate: false)
 
-        /// Recents and Insights open on their first tab (Recents' summary, Insights' Insights tab), the tab each
+        /// Recents and Insights open on their first tab (Recents' summary, InsightsView's Insights tab), the tab each
         /// sidebar row stands for.
         case .recents:
             LibraryTab.recents(.summary).open(appState: appState, immediate: false)
 
-        case .reports:
-            LibraryTab.reports(.primary).open(appState: appState, immediate: false)
+        case .insights:
+            LibraryTab.insights(.primary).open(appState: appState, immediate: false)
 
         case .filmQueue:
             LibraryTab.queue(.all).open(appState: appState, immediate: false)
@@ -919,9 +980,9 @@ struct LeftSidebarMenu: View {
 
             Divider()
 
-            ForEach(ReportsCategory.allCases, id: \.self) { category in
-                tabToggle(category.displayName, item: .reports(category),
-                          shortcut: category == .primary ? .reports : nil) { selectReports(category) }
+            ForEach(InsightsCategory.allCases, id: \.self) { category in
+                tabToggle(category.displayName, item: .insights(category),
+                          shortcut: category == .primary ? .insights : nil) { selectInsights(category) }
             }
 
             Divider()
@@ -989,7 +1050,7 @@ struct LeftSidebarMenu: View {
         case allFilms
         case unwatched(UnwatchedCategory)
         case recents(RecentsCategory)
-        case reports(ReportsCategory)
+        case insights(InsightsCategory)
         case imports(ImportsCategory)
         case filmQueueSection(FilmQueueFilter)
         case smartList(SmartListType)
@@ -1025,12 +1086,12 @@ struct LeftSidebarMenu: View {
             }
             return false
             
-        case .reports(let category):
-            /// Check if we're in Reports view AND have the specific category selected
-            guard case .libraryItem(.reports) = appState.selectedSidebarItem else {
+        case .insights(let category):
+            /// Check if we're in Insights view AND have the specific category selected
+            guard case .libraryItem(.insights) = appState.selectedSidebarItem else {
                 return false
             }
-            return ReportsState.shared.selectedCategory == category
+            return InsightsState.shared.selectedCategory == category
             
         case .imports(let category):
             /// Check if we're in Imports view and have the specific category selected
@@ -1086,8 +1147,8 @@ struct LeftSidebarMenu: View {
     }
     
     @MainActor
-    private func selectReports(_ category: ReportsCategory) {
-        LibraryTab.reports(category).open(appState: appState, immediate: false)
+    private func selectInsights(_ category: InsightsCategory) {
+        LibraryTab.insights(category).open(appState: appState, immediate: false)
     }
     
     /// Select an imports category. The item names its tab, so it lands there even while an import of

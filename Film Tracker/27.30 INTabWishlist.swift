@@ -1,4 +1,4 @@
-// MARK: - RPTabWishlist.swift
+// MARK: - INTabWishlist.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// The Release Wishlist report tab. It lists wishlisted releases in wishlist order, and its rows also feed the PDF export.
@@ -26,7 +26,7 @@ private enum WishlistColW {
     /// The studio column gives up to half its width before the title truncates further.
     static let studioMin: CGFloat = studio / 2
 
-    /// The title column's floor: 50% above ReportsRankedListView's default of 80.
+    /// The title column's floor: 50% above InsightsRankedListView's default of 80.
     static let titleMin: CGFloat = 120
 }
 
@@ -44,59 +44,59 @@ struct ReleaseWishlistView: View {
     @State private var isReloadScheduled = false
 
     private static let emptyStateConfig = EmptyStateConfig(
-        glyph: ReportsCategory.releaseWishlist.glyph,
+        glyph: InsightsCategory.releaseWishlist.glyph,
         noFilmsMessage: "Add films to your library to build your release wishlist.",
         noDataMessage: "Add releases of films to your wishlist to see them collated here."
     )
 
     /// Format badge, studio, release date, independence, and availability. Each column's `trailingPad` (`detailGap`) plus the table's
     /// 12 pt spacing gives the gap to the next column.
-    private static let trailingColumns: [ReportTableColumn<WishlistRelease>] = {
+    private static let trailingColumns: [InsightsTableColumn<WishlistRelease>] = {
         let detailPad = WishlistColW.detailGap
         let secondary = NSFont.systemFont(ofSize: 12)
         let mono = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
         let italic = NSFont(descriptor: secondary.fontDescriptor.withSymbolicTraits(.italic), size: 12)
             ?? secondary
         return [
-            ReportTableColumn(id: "format", width: WishlistColW.format + detailPad, trailingPad: detailPad,
+            InsightsTableColumn(id: "format", width: WishlistColW.format + detailPad, trailingPad: detailPad,
                               content: .badge { row in
-                                  /// The ReleaseCard header's band tint, muted by the cell (ReportTableCellView's badge case).
-                                  ReportBadge.format(row.formatBadge)
+                                  /// The ReleaseCard header's band tint, muted by the cell (InsightsTableCellView's badge case).
+                                  InsightsBadge.format(row.formatBadge)
                               }),
             /// The one trailing column that resizes. It shrinks with the title, down to half its width, and never grows past its normal width.
-            ReportTableColumn(id: "studio", width: WishlistColW.studio + detailPad,
+            InsightsTableColumn(id: "studio", width: WishlistColW.studio + detailPad,
                               minWidth: WishlistColW.studioMin + detailPad,
                               maxWidth: WishlistColW.studio + detailPad, font: secondary,
                               isSecondary: true, trailingPad: detailPad, content: .text { $0.studio }),
-            ReportTableColumn(id: "year", width: WishlistColW.releaseDate + detailPad, alignment: .right,
+            InsightsTableColumn(id: "year", width: WishlistColW.releaseDate + detailPad, alignment: .right,
                               font: secondary, isSecondary: true, trailingPad: detailPad,
                               content: .runs { row in
                                   /// "May 30, " in the system face, with the year monospaced. A year-only or unreadable value is all "year".
                                   guard let comma = row.releaseDate.range(of: ", ", options: .backwards) else {
-                                      return [ReportTextRun(text: row.releaseDate, font: mono)]
+                                      return [InsightsTextRun(text: row.releaseDate, font: mono)]
                                   }
-                                  return [ReportTextRun(text: String(row.releaseDate[..<comma.upperBound])),
-                                          ReportTextRun(text: String(row.releaseDate[comma.upperBound...]), font: mono)]
+                                  return [InsightsTextRun(text: String(row.releaseDate[..<comma.upperBound])),
+                                          InsightsTextRun(text: String(row.releaseDate[comma.upperBound...]), font: mono)]
                               }),
-            ReportTableColumn(id: "independence", width: WishlistColW.independence + detailPad, font: secondary,
+            InsightsTableColumn(id: "independence", width: WishlistColW.independence + detailPad, font: secondary,
                               isSecondary: true, trailingPad: detailPad, content: .text { $0.independence }),
-            ReportTableColumn(id: "availability", width: WishlistColW.availability, font: secondary,
+            InsightsTableColumn(id: "availability", width: WishlistColW.availability, font: secondary,
                               isSecondary: true, content: .runs { row in
                                   /// An upcoming release has no availability yet, so the column says "Upcoming".
                                   row.isUpcoming
-                                      ? [ReportTextRun(text: "Upcoming", font: italic)]
-                                      : [ReportTextRun(text: row.marketAvailability)]
+                                      ? [InsightsTextRun(text: "Upcoming", font: italic)]
+                                      : [InsightsTextRun(text: row.marketAvailability)]
                               })
         ]
     }()
 
     var body: some View {
-        ReportsEmptyStateWrapper(
+        InsightsEmptyStateWrapper(
             totalFilmCount: dataCoordinator.totalFilmCount,
             isEmpty: releases.isEmpty,
             config: Self.emptyStateConfig
         ) {
-            ReportsRankedListView(
+            InsightsRankedListView(
                 items: releases,
                 selection: $selection,
                 onSelectionChange: handleSelectionChange,
@@ -115,8 +115,8 @@ struct ReleaseWishlistView: View {
         .onAppear {
             /// Mount path: cache-seeded, with a deferred reconciling load. This keeps the full-library scan (getWishlistReleases walks every
             /// release of every film) out of the mount frame on revisits. See HallOfFameView.onAppear.
-            if ReportsState.shared.hasLoadedData(for: .releaseWishlist) {
-                releases = ReportsState.shared.cachedWishlistReleases
+            if InsightsState.shared.hasLoadedData(for: .releaseWishlist) {
+                releases = InsightsState.shared.cachedWishlistReleases
                 DispatchQueue.main.async {
                     DispatchQueue.main.async {
                         reconcileWishlistReleases()
@@ -236,9 +236,9 @@ struct ReleaseWishlistView: View {
             releases = rebuilt
         }
 
-        /// Update ReportsState so the status bar count is current. Always called, since ReportsState does its own change detection and needs
+        /// Update InsightsState so the status bar count is current. Always called, since InsightsState does its own change detection and needs
         /// the first call to mark the category loaded.
-        ReportsState.shared.updateWishlistData(rebuilt)
+        InsightsState.shared.updateWishlistData(rebuilt)
 
         pruneSelectionToLiveRows()
     }
@@ -247,7 +247,7 @@ struct ReleaseWishlistView: View {
     /// missed cases. `.deleted` built its removed set after the reload, so it was always empty. `.updated` cleared only when a film left entirely,
     /// and `.releaseChanged` did no cleanup. Pruning against the surviving rows covers all three and cannot go stale.
     ///
-    /// `ReportRankedListView` reports the change through `onSelectionChange`, so the mapping into `SelectionState` happens in the normal path.
+    /// `InsightsRankedListView` reports the change through `onSelectionChange`, so the mapping into `SelectionState` happens in the normal path.
     ///
     /// It runs one run-loop pass later, from the current `releases`. Clearing synchronously lets NSTableView re-sync a stale selection into the binding.
     /// This matches HallOfFameView's prune.
@@ -273,7 +273,7 @@ struct ReleaseWishlistView: View {
 
         releases = updated
         persistCurrentOrder()
-        ReportsState.shared.updateWishlistData(releases)
+        InsightsState.shared.updateWishlistData(releases)
     }
 
     // MARK: - Persistence
@@ -288,7 +288,7 @@ struct ReleaseWishlistView: View {
     // MARK: - Selection
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        ReportsState.shared.selectedReleaseRowIDs = newSelection
+        InsightsState.shared.selectedReleaseRowIDs = newSelection
         /// newSelection contains WishlistRelease.id values (which equal the release UUIDs).
         /// Map back to film IDs for SelectionState so the RightSidebar shows the film.
         if newSelection.isEmpty {
@@ -312,7 +312,7 @@ struct ReleaseWishlistView: View {
 
 // MARK: - Wishlist Release Data Model
 
-/// One wishlist row in the Release Wishlist tab. It conforms to `RankedItem`, so `ReportsRankedListView` reads the stored `position`.
+/// One wishlist row in the Release Wishlist tab. It conforms to `RankedItem`, so `InsightsRankedListView` reads the stored `position`.
 struct WishlistRelease: Identifiable, Equatable, RankedItem {
     /// `id` is the release UUID, used for list row identity and selection.
     var id: UUID { releaseID }

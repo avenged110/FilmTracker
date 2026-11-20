@@ -792,7 +792,7 @@ enum ReleaseMarketAvailability {
     // MARK: Questions consumers ask
 
     /// True when the release cannot currently be bought new at retail: out of print
-    /// domestically (single or multi-pack) or flatly unavailable. Backs the Reports tab's
+    /// domestically (single or multi-pack) or flatly unavailable. Backs the Insights tab's
     /// "unpurchased and out-of-print" tally. Imports out of print are deliberately not
     /// included; consumers that want them test `isImport` as well, as they always have.
     static func isUnobtainable(_ tags: [String]) -> Bool {
@@ -928,7 +928,7 @@ enum LegacyReleaseValues {
 /// consumers ask of it. Open vocabulary, as everywhere else here.
 ///
 /// Each question is answered once, here. Before that, each consumer compared strings on its own, and a
-/// copy of a rule could survive elsewhere after the rule was centralized (for example, the Reports
+/// copy of a rule could survive elsewhere after the rule was centralized (for example, the Insights view
 /// data-viz pass's third copy of the object-based check).
 enum ReleaseAudioFormat {
     static let dolbyAtmos   = "Dolby Atmos"
@@ -953,7 +953,7 @@ enum ReleaseAudioFormat {
     static let dvdOptions = [dolbyDigital, dtsES, dts]
 
     /// The 4K UHD and Blu-ray vocabulary, in menu order. Matches the Data Visualizations
-    /// tab's Audio card codec bar order (27.40 RPTabDataViz.swift).
+    /// tab's Audio card codec bar order (27.40 INTabDataViz.swift).
     static let hdOptions = [dolbyAtmos, dolbyTrueHD, dolbyDigital, lpcm,
                             dtsX, dtsHDMA, dtsHDHR, dtsES, dts]
 
@@ -963,7 +963,7 @@ enum ReleaseAudioFormat {
     static let objectBasedTags: Set<String> = [dolbyAtmos, dtsX]
 
     /// True for an object-based format. The single definition, consulted by the control
-    /// that LOCKS the channels field, the cascade that CLEARS it, and the Reports tab's
+    /// that LOCKS the channels field, the cascade that CLEARS it, and the Insights tab's
     /// object-based tally.
     static func isObjectBased(_ value: String) -> Bool { objectBasedTags.contains(value) }
 
@@ -974,7 +974,7 @@ enum ReleaseAudioFormat {
     static func isLossless(_ value: String) -> Bool { losslessTags.contains(value) }
 
     /// The two lossy formats that are notable when they appear on an HD disc — a 4K UHD or
-    /// Blu-ray carrying one is the "lossy BD audio" the Reports tab counts. Deliberately
+    /// Blu-ray carrying one is the "lossy BD audio" the Insights tab counts. Deliberately
     /// NOT simply "not lossless": an unset field is not a lossy soundtrack, and neither is
     /// a value from a future build.
     static let lossyHDTags: Set<String> = [dolbyDigital, dtsHDHR]

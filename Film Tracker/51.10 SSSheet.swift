@@ -122,11 +122,9 @@ struct SavedSearchSheet: View, Loggable {
                 .focusable(false)
                 .disabled(problem != nil || isUnchanged)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 20)
+            .sheetBottomBar()
         }
-        .background(Color(nsColor: .windowBackgroundColor))
-        .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
+        .sheetFrame()
         .onAppear(perform: prepare)
         .alert("Unrecognized Rules Removed", isPresented: $showingDroppedRulesAlert) {
             Button("OK") {
@@ -502,7 +500,7 @@ struct ListChoiceGroup {
     static func groups(_ catalog: SearchListCatalog, excluding excluded: String?) -> [ListChoiceGroup] {
         let order: [(SearchListCatalog.Kind, String)] = [
             (.user, "Lists"), (.saved, "Saved Searches"), (.queue, LibraryItem.filmQueue.title), (.smart, "Smart Lists"),
-            (.recents, LibraryItem.recents.title), (.report, LibraryItem.reports.title)]
+            (.recents, LibraryItem.recents.title), (.report, LibraryItem.insights.title)]
         return order.compactMap { kind, title in
             let names = catalog.entries.filter { $0.kind == kind && $0.name != excluded }.map(\.name)
             return names.isEmpty ? nil : ListChoiceGroup(title: title, names: names)
@@ -717,7 +715,7 @@ private struct RuleRow: View {
         case .day:
             DatePicker("Date", selection: Binding(
                 get: { rule.day.date() },
-                set: { rule.day = RuleDay($0) }), displayedComponents: .date)
+                set: { rule.day = RuleDay($0) }), in: DateFloor.date..., displayedComponents: .date)
                 .labelsHidden()
                 .datePickerStyle(.field)
                 .fixedSize()

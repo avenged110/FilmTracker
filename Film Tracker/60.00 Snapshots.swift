@@ -296,7 +296,7 @@ struct ReleaseSnapshot: Sendable, Codable, Equatable {
     /// A parent 4K release and its Blu-ray child are a single acquisition. The child is
     /// excluded from library aggregations where it would otherwise double-count a single
     /// product or its money — specifically the wishlist, the purchase/expense tracker, and
-    /// the RPTabDataViz statistics. It is *kept* everywhere the bundled Blu-ray is a real,
+    /// the INTabDataViz statistics. It is *kept* everywhere the bundled Blu-ray is a real,
     /// distinct disc: the FilmSheet, the RightSidebar ReleasesTable catalog, per-film disc
     /// counts, the Watch Details "Source" field, smart lists, and format-based search.
     var isChild: Bool { parentReleaseID != nil }
@@ -993,6 +993,7 @@ struct SettingsSnapshot: Sendable, Equatable {
     let manualExtQuery: Bool?
     let smartLists: Bool?
     let showTagsInSidebar: Int?
+    let sidebarTagOrder: Int?
     let excludeQueuedFromUpForRotation: Bool?
     let maintainSelectionOnSearchExit: Bool?
     let showSearchSuggestions: Bool?
@@ -1036,6 +1037,8 @@ struct SettingsSnapshot: Sendable, Equatable {
     // MARK: - Complex Preferences (stored as JSON strings)
     let selectedSortOptionsJSON: String?
     let ignoredDuplicatePairsJSON: String?
+    let pinnedTagsJSON: String?
+    let tagUsesJSON: String?
 
     // MARK: - Initialization
     init(snapshotID: UUID = SettingsObject.singletonID,
@@ -1056,6 +1059,7 @@ struct SettingsSnapshot: Sendable, Equatable {
          manualExtQuery: Bool? = nil,
          smartLists: Bool? = nil,
          showTagsInSidebar: Int? = nil,
+         sidebarTagOrder: Int? = nil,
          excludeQueuedFromUpForRotation: Bool? = nil,
          maintainSelectionOnSearchExit: Bool? = nil,
          showSearchSuggestions: Bool? = nil,
@@ -1088,7 +1092,9 @@ struct SettingsSnapshot: Sendable, Equatable {
          atvq: Bool? = nil,
          loggingEnabled: Bool? = nil,
          selectedSortOptionsJSON: String? = nil,
-         ignoredDuplicatePairsJSON: String? = nil) {
+         ignoredDuplicatePairsJSON: String? = nil,
+         pinnedTagsJSON: String? = nil,
+         tagUsesJSON: String? = nil) {
         self.snapshotID = snapshotID
         self.version = version
         self.lastSyncDate = lastSyncDate
@@ -1107,6 +1113,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.manualExtQuery = manualExtQuery
         self.smartLists = smartLists
         self.showTagsInSidebar = showTagsInSidebar
+        self.sidebarTagOrder = sidebarTagOrder
         self.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
         self.showSearchSuggestions = showSearchSuggestions
@@ -1140,6 +1147,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.loggingEnabled = loggingEnabled
         self.selectedSortOptionsJSON = selectedSortOptionsJSON
         self.ignoredDuplicatePairsJSON = ignoredDuplicatePairsJSON
+        self.pinnedTagsJSON = pinnedTagsJSON
+        self.tagUsesJSON = tagUsesJSON
     }
 
     // MARK: - Initialization from SettingsObject
@@ -1163,6 +1172,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.manualExtQuery = object.manualExtQuery
         self.smartLists = object.smartLists
         self.showTagsInSidebar = object.showTagsInSidebar
+        self.sidebarTagOrder = object.sidebarTagOrder
         self.excludeQueuedFromUpForRotation = object.excludeQueuedFromUpForRotation
         self.maintainSelectionOnSearchExit = object.maintainSelectionOnSearchExit
         self.showSearchSuggestions = object.showSearchSuggestions
@@ -1196,6 +1206,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.loggingEnabled = object.loggingEnabled
         self.selectedSortOptionsJSON = object.selectedSortOptionsJSON
         self.ignoredDuplicatePairsJSON = object.ignoredDuplicatePairsJSON
+        self.pinnedTagsJSON = object.pinnedTagsJSON
+        self.tagUsesJSON = object.tagUsesJSON
     }
 
     // MARK: - Apply to SettingsObject
@@ -1219,6 +1231,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.manualExtQuery = manualExtQuery
         object.smartLists = smartLists
         object.showTagsInSidebar = showTagsInSidebar
+        object.sidebarTagOrder = sidebarTagOrder
         object.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
         object.maintainSelectionOnSearchExit = maintainSelectionOnSearchExit
         object.showSearchSuggestions = showSearchSuggestions
@@ -1252,6 +1265,8 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.loggingEnabled = loggingEnabled
         object.selectedSortOptionsJSON = selectedSortOptionsJSON
         object.ignoredDuplicatePairsJSON = ignoredDuplicatePairsJSON
+        object.pinnedTagsJSON = pinnedTagsJSON
+        object.tagUsesJSON = tagUsesJSON
     }
 }
 

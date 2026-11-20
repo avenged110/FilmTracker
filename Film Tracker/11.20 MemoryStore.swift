@@ -493,7 +493,7 @@ final class MemoryStore: Loggable {
         /// one release format sorts Date Last Purchased by that format's purchases only, so it keeps its own.
         let cacheViewID: ViewIdentifier
         switch viewID {
-        case .savedSearch, .tag, .smartList, .unwatched, .recents, .reports, .search:
+        case .savedSearch, .tag, .smartList, .unwatched, .recents, .insights, .search:
             cacheViewID = viewID.purchaseFormatScope == nil ? .allFilms : viewID
         case .allFilms, .list, .filmQueue, .imports:
             cacheViewID = viewID
@@ -519,7 +519,7 @@ final class MemoryStore: Loggable {
             /// The Film Queue orders films by section (Up Next → Soon → Later) via the
             /// grouped path below, not by a flat union sort; Imports shows no films.
             baseFilmIDs = []
-        case .allFilms, .smartList, .unwatched, .recents, .reports, .search, .savedSearch, .tag:
+        case .allFilms, .smartList, .unwatched, .recents, .insights, .search, .savedSearch, .tag:
             baseFilmIDs = Array(films.keys)
         }
         
@@ -650,6 +650,7 @@ final class MemoryStore: Loggable {
     /// The corresponding managed object is managed separately by DataCoordinator (view context)
     /// and DataManager (background context).
     func addFilm(_ snapshot: FilmSnapshot) {
+        TagUseStore.recordUses(from: nil, to: snapshot.tags)
         films[snapshot.id] = snapshot
         MetadataCache.shared.addFilm(snapshot)
         invalidateCacheForAllFilms()
@@ -669,8 +670,10 @@ final class MemoryStore: Loggable {
     
     /// Batch counterpart of addFilm(_:) for imports: one MetadataCache store, one view-cache
     /// invalidation and one throttled save for the whole batch, rather than one per film.
-    func addFilms(_ snapshots: [FilmSnapshot]) {
+    /// `recordingTagUses` false for a rollback putting films back, which uses no tag.
+    func addFilms(_ snapshots: [FilmSnapshot], recordingTagUses: Bool = true) {
         guard !snapshots.isEmpty else { return }
+        if recordingTagUses { TagUseStore.recordUses(snapshots.map { (old: nil, new: $0.tags) }) }
         var ranked = false
         for snapshot in snapshots {
             films[snapshot.id] = snapshot
@@ -712,12 +715,16 @@ final class MemoryStore: Loggable {
     /// Replaces an existing FilmSnapshot in MemoryStore and updates MetadataCache.
     /// Called after any mutation that changes film properties — scalars, releases, or derived
     /// values — to keep the in-memory state authoritative for the UI.
-    func updateFilm(_ snapshot: FilmSnapshot) {
+    /// `recordingTagUses` false for a rollback putting a film's tags back (TagUseStore).
+    func updateFilm(_ snapshot: FilmSnapshot, recordingTagUses: Bool = true) {
         guard let existing = films[snapshot.id] else {
             Self.log("WARNING: Tried to update non-existent film: \(snapshot.id)")
             return
         }
-        
+        if recordingTagUses, snapshot.tags != existing.tags {
+            TagUseStore.recordUses(from: existing.tags, to: snapshot.tags)
+        }
+
         films[snapshot.id] = snapshot
         MetadataCache.shared.updateFilm(snapshot)
         
@@ -743,22 +750,26 @@ final class MemoryStore: Loggable {
     /// Batch counterpart of updateFilm(_:), for many films changed at once (the MultiFilmSheet's
     /// save). Derived state is repaired once for the batch: one MetadataCache update, one round of
     /// view-cache invalidation, one Hall of Fame rebuild if a rank moved, and one scheduled save.
-    func updateFilms(_ snapshots: [FilmSnapshot]) {
+    /// `recordingTagUses` false for a rollback putting films' tags back (TagUseStore).
+    func updateFilms(_ snapshots: [FilmSnapshot], recordingTagUses: Bool = true) {
         var stored: [FilmSnapshot] = []
         stored.reserveCapacity(snapshots.count)
         var listsToInvalidate: Set<UUID> = []
         var ranksMoved = false
+        var tagChanges: [(old: [String]?, new: [String])] = []
         for snapshot in snapshots {
             guard let existing = films[snapshot.id] else {
                 Self.log("WARNING: Tried to update non-existent film: \(snapshot.id)")
                 continue
             }
+            if recordingTagUses, snapshot.tags != existing.tags { tagChanges.append((existing.tags, snapshot.tags)) }
             films[snapshot.id] = snapshot
             stored.append(snapshot)
             if let listIDs = filmToLists[snapshot.id] { listsToInvalidate.formUnion(listIDs) }
             if snapshot.hofPosition != existing.hofPosition { ranksMoved = true }
         }
         guard !stored.isEmpty else { return }
+        TagUseStore.recordUses(tagChanges)
         MetadataCache.shared.updateFilms(stored)
         invalidateCacheForAllFilms()
         for listID in listsToInvalidate { invalidateCacheForList(listID) }
@@ -1052,7 +1063,7 @@ final class MemoryStore: Loggable {
         /// Collect the keys to remove, then remove each one in place, to avoid copying the dictionary.
         let keysToRemove = cachedViews.keys.filter { key in
             switch key.viewID {
-            case .allFilms, .smartList, .unwatched, .recents, .reports, .imports, .search, .filmQueue,
+            case .allFilms, .smartList, .unwatched, .recents, .insights, .imports, .search, .filmQueue,
                  .savedSearch, .tag:
                 /// (.savedSearch and .tag never key a cache entry; getFilms maps them to .allFilms.)
                 /// .filmQueue and .unwatched are whole-library views: a film's sort keys, watched

@@ -13,7 +13,7 @@ import os
 /// lists, user lists and saved searches) share one mounted GalleryView. A move between them is an in-place
 /// view switch, the path a Recents tab or smart-list variant takes: the representable sees a new
 /// activeViewID, banks the outgoing origin, reloads, and restores the incoming one. No title bar, scroll
-/// view, collection or table view, cells or window layout is rebuilt. Reports and Imports are separate
+/// view, collection or table view, cells or window layout is rebuilt. Insights and Imports are separate
 /// branches and mount their own views.
 ///
 /// A remount would reset a few things the shared instance keeps. GalleryView puts them back on each
@@ -51,7 +51,7 @@ enum GalleryReuse {
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
              .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch, .tag:
             return true
-        case .libraryItem(.reports), .libraryItem(.imports):
+        case .libraryItem(.insights), .libraryItem(.imports):
             return false
         }
     }
@@ -177,7 +177,7 @@ struct GalleryView: View, Loggable {
     /// dismantleNSView still saves the outgoing scroll origin.
     ///
     /// MainView hands the shared instance (GalleryReuse) the current item on every pass it makes. This guards
-    /// only a pass of the gallery's own, should one land after the sidebar moves to Reports or Imports.
+    /// only a pass of the gallery's own, should one land after the sidebar moves to Insights or Imports.
     private var isOutgoing: Bool {
         appState.selectedSidebarItem != sidebarItem
     }
@@ -288,11 +288,12 @@ struct GalleryView: View, Loggable {
         } else if case .filmQueue = activeView {
             filmQueuePlaceholder()
         } else if case .tag(let tag) = activeView, dataCoordinator.hasDatabaseFilms {
-            /// The last film carrying the tag lost it; the row leaves the sidebar with it.
+            /// The last film carrying the tag lost it. A Most-Used row leaves the sidebar with
+            /// it; a pinned row stays and opens here.
             StandardPlaceholder(
-                glyph: ViewGlyphs.tag.outline,
+                glyph: ViewGlyphs.tag.filled,
                 title: "No Films Tagged",
-                message: "No films in your library carry the \u{201C}\(tag.name)\u{201D} tag."
+                message: "No films in your library carry the \u{201C}\(truncateListName(tag.name, maxLength: 42))\u{201D} tag."
             )
         } else if hasSearchQuery {
             StandardPlaceholder(
@@ -463,8 +464,12 @@ struct GalleryView: View, Loggable {
                 guard let dataCoordinator else { return }
                 switch event {
                 case .updated(let filmID):
-                    /// Edits also ask the gallery to keep the edited film in view.
-                    handler.notePendingScrollTarget(filmID)
+                    /// Edits also ask the gallery to keep the edited film in view, except a
+                    /// many-film edit made away from the gallery (a tag rename), which leaves
+                    /// the scroll where it is (DataCoordinator.suppressesEditScroll).
+                    if !dataCoordinator.suppressesEditScroll {
+                        handler.notePendingScrollTarget(filmID)
+                    }
                 case .added:
                     break
                 case .deleted:

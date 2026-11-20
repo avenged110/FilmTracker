@@ -192,6 +192,22 @@ final class SettingsManager: Loggable {
             return nil
         }()
         
+        let tagUsesJSON: String? = {
+            if let jsonData = try? JSONEncoder().encode(Preferences.tagUses),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                return jsonString
+            }
+            return nil
+        }()
+
+        let pinnedTagsJSON: String? = {
+            if let jsonData = try? JSONEncoder().encode(Preferences.pinnedTags),
+               let jsonString = String(data: jsonData, encoding: .utf8) {
+                return jsonString
+            }
+            return nil
+        }()
+
         return SettingsSnapshot(
             snapshotID: SettingsObject.singletonID,
             version: SettingsObject.currentVersion,
@@ -212,6 +228,7 @@ final class SettingsManager: Loggable {
             manualExtQuery: Preferences.manualExtQuery,
             smartLists: Preferences.smartLists,
             showTagsInSidebar: Preferences.showTagsInSidebar.rawValue,
+            sidebarTagOrder: Preferences.sidebarTagOrder.rawValue,
             excludeQueuedFromUpForRotation: Preferences.excludeQueuedFromUpForRotation,
             maintainSelectionOnSearchExit: Preferences.maintainSelectionOnSearchExit,
             showSearchSuggestions: Preferences.showSearchSuggestions,
@@ -249,7 +266,9 @@ final class SettingsManager: Loggable {
             loggingEnabled: Preferences.loggingEnabled,
             /// Complex Preferences (JSON)
             selectedSortOptionsJSON: sortOptionsJSON,
-            ignoredDuplicatePairsJSON: duplicatePairsJSON
+            ignoredDuplicatePairsJSON: duplicatePairsJSON,
+            pinnedTagsJSON: pinnedTagsJSON,
+            tagUsesJSON: tagUsesJSON
         )
     }
     
@@ -304,6 +323,10 @@ final class SettingsManager: Loggable {
         if let raw = snapshot.showTagsInSidebar,
            let count = Preferences.SidebarTagCount(rawValue: raw) {
             Preferences.showTagsInSidebar = count
+        }
+        if let raw = snapshot.sidebarTagOrder,
+           let order = Preferences.SidebarTagOrder(rawValue: raw) {
+            Preferences.sidebarTagOrder = order
         }
 
         apply(snapshot.excludeQueuedFromUpForRotation) { Preferences.excludeQueuedFromUpForRotation = $0 }
@@ -398,6 +421,18 @@ final class SettingsManager: Loggable {
            let data = json.data(using: .utf8),
            let decoded = try? JSONDecoder().decode([String].self, from: data) {
             Preferences.ignoredDuplicatePairs = decoded
+        }
+
+        if let json = snapshot.pinnedTagsJSON,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String].self, from: data) {
+            Preferences.pinnedTags = decoded
+        }
+
+        if let json = snapshot.tagUsesJSON,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([String: Double].self, from: data) {
+            Preferences.tagUses = decoded
         }
     }
 }

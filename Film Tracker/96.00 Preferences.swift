@@ -262,6 +262,12 @@ struct Preferences: Loggable {
             "preferences.smartLists"
         static let showTagsInSidebar =
             "preferences.showTagsInSidebar"
+        static let pinnedTags =
+            "preferences.pinnedTags"
+        static let sidebarTagOrder =
+            "preferences.sidebarTagOrder"
+        static let tagUses =
+            "preferences.tagUses"
         static let excludeQueuedFromUpForRotation =
             "preferences.excludeQueuedFromUpForRotation"
         /// Internal state, not a user-facing preference. See the accessor below.
@@ -375,6 +381,7 @@ struct Preferences: Loggable {
     static let showStatusBarKey                      = Keys.showStatusBar
     static let smartListsKey                         = Keys.smartLists
     static let showTagsInSidebarKey                  = Keys.showTagsInSidebar
+    static let sidebarTagOrderKey                    = Keys.sidebarTagOrder
     static let excludeQueuedFromUpForRotationKey     = Keys.excludeQueuedFromUpForRotation
     static let queueIsDropTargetKey                  = Keys.queueIsDropTarget
     static let queueSectionOnDropKey                 = Keys.queueSectionOnDrop
@@ -434,7 +441,8 @@ struct Preferences: Loggable {
             Keys.largeGalleryGrid: true,
             Keys.showStatusBar: true,
             Keys.smartLists: true,
-            Keys.showTagsInSidebar: SidebarTagCount.ten.rawValue,
+            Keys.showTagsInSidebar: SidebarTagCount.hidden.rawValue,
+            Keys.sidebarTagOrder: SidebarTagOrder.mostUsed.rawValue,
             Keys.excludeQueuedFromUpForRotation: true,
             Keys.queueIsDropTarget: true,
             Keys.queueSectionOnDrop: QueueDropSection.upNext.rawValue,
@@ -463,6 +471,8 @@ struct Preferences: Loggable {
             Keys.showInfoComplete: false,
             Keys.showWatchDetailsAnnotationGlyphs: false,
             Keys.ignoredDuplicatePairs: [String](),
+            Keys.pinnedTags: [String](),
+            Keys.tagUses: [String: Double](),
             Keys.overrideDateClamp: false,
             Keys.strictFramesTableChecking: true,
             Keys.prunePosterImages: true,
@@ -662,6 +672,26 @@ struct Preferences: Loggable {
         static let shownCases: [SidebarTagCount] = [.five, .ten, .twenty]
     }
 
+    /// Which tags the sidebar's Tags section lists (up to showTagsInSidebar of them): the
+    /// most-used, or the most recently put on a film (TagUseStore).
+    enum SidebarTagOrder: Int, CaseIterable {
+        case mostUsed   = 0
+        case mostRecent = 1
+
+        /// The Settings picker's wording, and the section's title.
+        var pickerTitle: String { self == .mostUsed ? "most-used" : "most-recent" }
+        var sectionTitle: String { self == .mostUsed ? "Most-Used Tags" : "Most-Recent Tags" }
+    }
+
+    static var sidebarTagOrder: SidebarTagOrder {
+        get {
+            let raw = defaults.integer(forKey: Keys.sidebarTagOrder)
+            return SidebarTagOrder(rawValue: raw) ?? registeredCase(Keys.sidebarTagOrder)
+        }
+        set {
+            setIfChanged(newValue.rawValue, forKey: Keys.sidebarTagOrder,
+                logMessage: "sidebarTagOrder set to \(newValue.rawValue)") } }
+
     static var showTagsInSidebar: SidebarTagCount {
         get {
             let raw = defaults.integer(forKey: Keys.showTagsInSidebar)
@@ -744,7 +774,7 @@ struct Preferences: Loggable {
     }
 
     // MARK: - Expanded Library Families
-    /// Which of the left sidebar's Unwatched, Recents and Reports rows are expanded. Internal
+    /// Which of the left sidebar's Unwatched, Recents and Insights rows are expanded. Internal
     /// state on the same terms as expandedSmartListFamilies above.
     static var expandedLibraryFamilies: Set<SidebarLibraryFamily> {
         get {
@@ -1061,6 +1091,29 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.ignoredDuplicatePairs,
                 logMessage: "ignoredDuplicatePairs updated (count: \(newValue.count))") } }
+
+    // MARK: - Pinned Tags
+    /// The tags pinned to the sidebar's Pinned Tags section, in the user's order, each in the
+    /// spelling it was pinned or last renamed with. PinnedTagStore owns them; tags compare by
+    /// SearchText.key, so the store never holds two spellings of one tag. Backed up with the
+    /// library's settings (SettingsObject.pinnedTagsJSON).
+    static var pinnedTags: [String] {
+        get {
+            return defaults.array(forKey: Keys.pinnedTags) as? [String] ?? [] }
+        set {
+            setIfChanged(newValue, forKey: Keys.pinnedTags,
+                logMessage: "pinnedTags updated (count: \(newValue.count))") } }
+
+    // MARK: - Tag Uses
+    /// When each tag (by SearchText.key) was last put on a film, as seconds since the reference
+    /// date. TagUseStore owns it; the sidebar's most-recent order reads it. Backed up with the
+    /// library's settings (SettingsObject.tagUsesJSON).
+    static var tagUses: [String: Double] {
+        get {
+            return defaults.dictionary(forKey: Keys.tagUses) as? [String: Double] ?? [:] }
+        set {
+            setIfChanged(newValue, forKey: Keys.tagUses,
+                logMessage: "tagUses updated (count: \(newValue.count))") } }
 
     /// Helper to generate a consistent pair key from two film UUIDs.
     static func makeDuplicatePairKey(film1ID: UUID, film2ID: UUID) -> String {

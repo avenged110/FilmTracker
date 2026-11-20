@@ -268,7 +268,7 @@ struct Metadata: View {
                 /// Single column section: "Tags" (conditional).
                 if !film.tags.isEmpty {
                     RSBHelpers.textSectionList(
-                        title: "Tags", values: film.tags,
+                        title: "Tags", values: film.tags.map { truncateListName($0) },
                         glyph: gatedGlyph("tag"), glyphColor: glyphTint)
                 }
             }

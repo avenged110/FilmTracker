@@ -65,9 +65,9 @@ enum ViewGlyphs {
     static let unwatched = Glyph("eye.slash")
     /// The Unwatched view's Not Rated tab.
     static let notRated = Glyph("star.slash")
-    /// Reports. Sidebar uses `.outline`; title bar uses `.filled`.
+    /// Insights. Sidebar uses `.outline`; title bar uses `.filled`.
     static let reports = Glyph("chart.pie")
-    /// The Reports tabs (ReportsCategory.symbol). Sidebar uses `.outline`; title bar uses `.filled`.
+    /// The Insights tabs (InsightsCategory.symbol). Sidebar uses `.outline`; title bar uses `.filled`.
     static let insights = Glyph("chart.bar")
     static let costTracker = reports
     static let priceTracker = Glyph("cart")
@@ -93,8 +93,10 @@ enum ViewGlyphs {
     static let search = Glyph.uniform("magnifyingglass")
     /// A saved search: its sidebar row and its view's title bar.
     static let savedSearch = Glyph.uniform("text.magnifyingglass")
-    /// A row of the sidebar's Tags section, and its gallery's title bar.
-    static let tag = Glyph.uniform("tag")
+    /// A tag: its sidebar row, its gallery's title bar and placeholder, and the TagSheet.
+    /// Sidebar uses `.outline` for Most-Used Tags and `.filled` for Pinned Tags (the one
+    /// sidebar exception); every other site uses `.filled`.
+    static let tag = Glyph("tag")
     /// The "No Results" placeholder shown when filters — rather than a query — are what
     /// emptied the gallery.
     static let activeFilters = Glyph("line.3.horizontal.decrease.circle")

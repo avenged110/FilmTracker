@@ -747,13 +747,18 @@ final class MetaParser: Loggable {
     /// with the film's title and the discarded raw value so it can be identified
     /// and corrected manually in FSTabMetadata's Release Date field.
     private nonisolated static func normalizeReleaseDate(_ rawValue: String, filmTitle: String) -> String {
+        /// A date before the app's floor (DateFloor) is imported as January 1 of the floor year.
+        func floored(_ year: Int, _ month: Int, _ day: Int) -> String {
+            let (y, m, d) = year < DateFloor.year ? (DateFloor.year, 1, 1) : (year, month, day)
+            return "\(Fmt.padded(y, 4))-\(Fmt.padded(m, 2))-\(Fmt.padded(d, 2))T12:00:00Z"
+        }
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
 
         /// Fast path: a leading "YYYY-MM-DD" or "YYYY.MM.DD" — already the app's
         /// own convention and the convention most third-party taggers use.
         if let (year, month, day) = isoDatePrefixComponents(from: trimmed) {
-            return "\(Fmt.padded(year, 4))-\(Fmt.padded(month, 2))-\(Fmt.padded(day, 2))T12:00:00Z"
+            return floored(year, month, day)
         }
 
         /// Fallback: locale-style formats some taggers use instead of ISO8601.
@@ -769,7 +774,7 @@ final class MetaParser: Loggable {
             guard let date = formatter.date(from: trimmed) else { continue }
             let comps = utcCalendar.dateComponents([.year, .month, .day], from: date)
             if let year = comps.year, let month = comps.month, let day = comps.day {
-                return "\(Fmt.padded(year, 4))-\(Fmt.padded(month, 2))-\(Fmt.padded(day, 2))T12:00:00Z"
+                return floored(year, month, day)
             }
         }
 

@@ -82,6 +82,9 @@ struct DVAttentionPopover: View {
     let label: String
     let items: [DVNamedFilm]
     let dismiss: () -> Void
+    /// Makes the list instead of asking SheetHostView for its sheet, for a host that is itself
+    /// a sheet (the TagSheet's View All Tags), where SheetHostView can't open another.
+    var onCreateList: ((Set<UUID>) -> Void)? = nil
 
     private static let popoverWidth: CGFloat = 300
     private static let popoverHeight: CGFloat = 400
@@ -99,8 +102,13 @@ struct DVAttentionPopover: View {
         VStack(spacing: 0) {
             /// Fixed header: the list-creation button. It pre-fills the list name with this row's label.
             Button("Create New List With These Items") {
-                AppEventBus.shared.sendCommand(
-                    .showListCreationFromSelection(filmIDs: Set(items.map(\.filmID)), prefillName: label))
+                let filmIDs = Set(items.map(\.filmID))
+                if let onCreateList {
+                    onCreateList(filmIDs)
+                } else {
+                    AppEventBus.shared.sendCommand(
+                        .showListCreationFromSelection(filmIDs: filmIDs, prefillName: label))
+                }
                 dismiss()
             }
             .buttonStyle(.bordered)

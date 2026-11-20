@@ -700,7 +700,7 @@ struct CustomDateStepper: View {
     /// The years a year Stepper steps through when its caller gives no range. Also the
     /// range the saved-search builder clamps a typed year to (SavedSearchSheet), so a
     /// year typed there is one a Stepper could reach.
-    static var defaultYearRange: ClosedRange<Int> { 1910...currentYear }
+    static var defaultYearRange: ClosedRange<Int> { DateFloor.year...currentYear }
 
     /// Every month/day/year decomposition and composition in this view goes through the
     /// app's pinned Gregorian calendar — the one the stored-date formatters use — never

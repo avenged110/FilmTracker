@@ -1471,6 +1471,28 @@ extension DebugHarness {
             r.check("seed-poisoned-list-names", false, "\(error)")
         }
 
+        /// --- Dates below the floor ------------------------------------------------------------
+        /// A film whose dates predate DateFloor, as a hand-edited or old backup could carry. The restore raises each to January 1, 1910,
+        /// keeping its spelling and suffix, and drops a viewing that the clamp makes a repeat.
+        let floorFilmID = UUID()
+        do {
+            let context = coordinator.persistentContainer.makeMainContext()
+            let film = Film(id: floorFilmID)
+            film.name = "Date Floor Specimen"
+            film.releaseYear = "1902"
+            film.releaseDate = "1902-09-01"
+            /// The genuine 1910.01.01 comes last, so a clamped viewing must also yield to a day listed after it.
+            film.calendarTable = ["1888.05.05", "1905.01.01.TH", "2001.01.01", "1910.01.01"]
+            film.viewCount = 4
+            film.lastWatched = "2001.01.01"
+            film.editDate = "1899-12-31"
+            film.dateAdded = "1909-06-15T12:00:00.000Z"
+            context.insert(film)
+            try context.save()
+        } catch {
+            r.check("seed-date-floor-film", false, "\(error)")
+        }
+
         guard let packageURL = await runExport(coordinator: coordinator, filename: "endtoend") else {
             r.check("export-succeeds", false, "createCompleteBackup threw")
             return r
@@ -1590,6 +1612,15 @@ extension DebugHarness {
                     + collisionVariants.sorted().joined(separator: ", "))
 
         let restoredByID = Dictionary(restored.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+
+        if let floorFilm = restoredByID[floorFilmID] {
+            let got = [floorFilm.releaseYear, floorFilm.releaseDate, floorFilm.calendarTable.joined(separator: ","),
+                       floorFilm.lastWatched, floorFilm.editDate, floorFilm.dateAdded, String(floorFilm.viewCount)]
+            let expected = ["1910", "1910-01-01", "2001.01.01,1910.01.01", "2001.01.01", "1910-01-01", "1910-01-01T12:00:00.000Z", "2"]
+            r.check("restore-clamps-to-date-floor", got == expected, "got \(got), expected \(expected)")
+        } else {
+            r.check("restore-clamps-to-date-floor", false, "the specimen film was not restored")
+        }
 
         r.check("deleted-film-comes-back", restoredByID[deletedID] != nil,
                 "a film deleted after the backup must exist again after the restore")

@@ -6,7 +6,7 @@
 ///  • SUMMARY: a row of labeled figures a view supplies (StatusBarSummary), in a style it picks
 ///    (StatusBarSummaryStyle).
 /// A view may show either row alone (one row high) or both stacked (two rows high), and the summary row is
-/// always on top. The Reports Purchase Tracker and Hall of Fame tabs show both.
+/// always on top. The Insights Purchase Tracker and Hall of Fame tabs show both.
 ///
 /// Everything about the bar lives in this file: its rows, metrics, chrome (background and top divider; stacked
 /// rows have no divider between them), the summary contents and styles, and how much room content leaves for it.
@@ -17,7 +17,7 @@
 ///  • MainView mounts `StatusBar(layout:)` when `isVisible`, and passes `height` to GalleryView, which hands it to
 ///    the grid, list, and Recents summary as their AppKit bottom insets. GalleryView must not resolve it itself:
 ///    see GalleryView.statusBarHeight.
-///  • SwiftUI content (the Reports tables and lists) applies `.statusBarInset()`.
+///  • SwiftUI content (the Insights tables and lists) applies `.statusBarInset()`.
 /// `height` is 0 when the bar is hidden and grows by one row per row shown, so no site counts rows itself.
 ///
 /// CHOOSING ROWS: a view sets ViewCapabilities.statusBar (ViewState.swift) to `.classic` (the default),
@@ -72,17 +72,15 @@ struct StatusBarContent: Equatable, Sendable {
 struct StatusBarLayout: Equatable, Sendable {
     let rows: [StatusBarRow]
 
-    /// No bar: the Show Status Bar setting is off, or the view has no gallery chrome (Imports, Insights).
+    /// No bar: the Show Status Bar setting is off, or the view shows none (InsightsView's Insights tab).
     static let hidden = StatusBarLayout(rows: [])
 
-    /// The single source of truth for the bar's presence and rows. The per-view inputs are ViewCapabilities'
-    /// `showsGalleryChrome` (shared with the right sidebar) and `statusBar`.
+    /// The single source of truth for the bar's presence and rows. The per-view input is ViewCapabilities'
+    /// `statusBar`, nil for a view that never shows the bar.
     @MainActor
     static func resolve(for item: SidebarItem, showStatusBar: Bool) -> StatusBarLayout {
-        guard showStatusBar else { return .hidden }
-        let capabilities = item.capabilities
-        guard capabilities.showsGalleryChrome else { return .hidden }
-        return StatusBarLayout(rows: capabilities.statusBar.rows)
+        guard showStatusBar, let content = item.capabilities.statusBar else { return .hidden }
+        return StatusBarLayout(rows: content.rows)
     }
 
     var isVisible: Bool { !rows.isEmpty }
@@ -92,7 +90,7 @@ struct StatusBarLayout: Equatable, Sendable {
 }
 
 /// The selected view's StatusBarLayout, kept current. It observes the Show Status Bar setting and the sidebar
-/// selection (and, through ViewCapabilities, the Reports tab), so a view that reads it updates when any of them changes.
+/// selection (and, through ViewCapabilities, the Insights tab), so a view that reads it updates when any of them changes.
 @MainActor
 @propertyWrapper
 struct CurrentStatusBar: DynamicProperty {
@@ -113,18 +111,41 @@ enum StatusBarSummary: Hashable, Sendable {
     case purchaseTotals
     /// The Hall of Fame's films by best format owned, then by rating, each with its share of the whole list.
     case hallOfFameTotals
+    /// Imports: films added and updated by the selected tab's sessions over the past month, 6 months, and year.
+    case importActivity
 
     /// How the row sets its items apart.
     var style: StatusBarSummaryStyle {
         switch self {
-        case .purchaseTotals, .hallOfFameTotals: return .chips
+        case .purchaseTotals, .hallOfFameTotals, .importActivity: return .chips
         }
     }
 
-    /// The row's items, left to right.
+    /// The row's items, left to right. `importSessions` is read only by `.importActivity`.
     @MainActor
-    func items(reportsState: ReportsState) -> [StatusBarItem] {
+    func items(reportsState: InsightsState, importSessions: () -> [ImportSessionRecord]) -> [StatusBarItem] {
         switch self {
+        case .importActivity:
+            let sessions = importSessions()
+            let now = Date()
+            let calendar = Calendar.current
+            let periods: [(label: String, start: Date?)] = [
+                ("Past month", calendar.date(byAdding: .day, value: -30, to: now)),
+                ("Past 6 months", calendar.date(byAdding: .month, value: -6, to: now)),
+                ("Past year", calendar.date(byAdding: .year, value: -1, to: now))]
+            return periods.map { period in
+                var added = 0, updated = 0
+                if let start = period.start {
+                    for session in sessions where session.sessionDate >= start {
+                        added += session.successCount
+                        updated += session.updatedCount
+                    }
+                }
+                let text = added == 0 && updated == 0
+                    ? "\(period.label): No activity"
+                    : "\(period.label): \(Fmt.count(added, "film")) added, \(Fmt.count(updated)) updated"
+                return StatusBarItem(id: period.label, text: text)
+            }
         case .purchaseTotals:
             let totals = reportsState.purchaseTotals
             /// "—" where there is nothing to divide, as the Cost column shows "—" for a release with no cost.
@@ -262,10 +283,13 @@ private struct StatusBarRowFrame<Content: View>: View {
 // MARK: - Summary Row
 private struct StatusBarSummaryRow: View {
     let summary: StatusBarSummary
-    var reportsState = ReportsState.shared
+    var reportsState = InsightsState.shared
+    @Environment(DataCoordinator.self) private var dataCoordinator
 
     var body: some View {
-        let items = summary.items(reportsState: reportsState)
+        let items = summary.items(reportsState: reportsState) {
+            ImportsView.listedSessions(in: dataCoordinator.persistentContainer)
+        }
         switch summary.style {
         case .separated:
             Text(items.map(\.text).joined(separator: StatusBar.separator))
@@ -380,21 +404,26 @@ private struct StatusBarClassicRow: View {
     @Environment(AppState.self) private var appState
     @Environment(SelectionState.self) private var selectionState
     @Environment(DataCoordinator.self) private var dataCoordinator
-    var reportsState = ReportsState.shared
+    var reportsState = InsightsState.shared
 
     var body: some View {
         Text(text)
     }
 
     private var text: String {
-        let isReportsView = appState.selectedSidebarItem == .libraryItem(.reports)
-        let total = isReportsView ? reportsState.visibleItemCount : dataCoordinator.filmCount
+        /// Imports counts the sessions listed on the selected tab.
+        if appState.selectedSidebarItem == .libraryItem(.imports) {
+            let sessions = ImportsView.listedSessions(in: dataCoordinator.persistentContainer).count
+            return "\(Fmt.count(sessions, "import session"))"
+        }
+        let isInsightsView = appState.selectedSidebarItem == .libraryItem(.insights)
+        let total = isInsightsView ? reportsState.visibleItemCount : dataCoordinator.filmCount
         let selected = selectionState.selectedFilmIDs.count
 
         /// The Hall of Fame tab lists films, so it uses the film label. The Purchase Tracker, Price Tracker, and
         /// Release Wishlist tabs list releases. The tab is the displayed one, which visibleItemCount follows, so the
         /// label and count change together. The selected tab leads it by two run-loop cycles on a picker switch.
-        let listsReleases = isReportsView && reportsState.displayedCategory != .hallOfFame
+        let listsReleases = isInsightsView && reportsState.displayedCategory != .hallOfFame
         let label = Fmt.noun(total, listsReleases ? "release" : "film")
 
         switch selected {

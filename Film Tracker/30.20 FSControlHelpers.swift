@@ -2572,7 +2572,7 @@ struct DurationHelpers {
     /// A stored runtime — the Film model's millisecond string, `duration` or
     /// `editedDuration` — in whole minutes, or nil when it is missing, unparseable, or not
     /// positive. The one reading of that field for display: the right sidebar and gallery
-    /// list (through `RSBHelpers.hoursAndMinutes`), search, and the Reports tab's
+    /// list (through `RSBHelpers.hoursAndMinutes`), search, and the Insights tab's
     /// statistics all go through here. (The gallery's duration sort and its divider bands
     /// read the field their own way, together, because the bands must match the sort; see
     /// MetadataCache's `.duration` case.)

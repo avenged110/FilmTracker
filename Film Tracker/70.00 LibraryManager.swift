@@ -700,8 +700,7 @@ struct ListManagerSheet: View, Loggable {
                 .keyboardShortcut(.defaultAction)
                 .disabled(!canSave)
             }
-            .padding(.vertical, 12)
-            .padding(.horizontal, 20)
+            .sheetBottomBar()
         }
         .frame(width: 320)
         .fixedSize()
@@ -820,16 +819,16 @@ enum FilmRemoval: Loggable {
 
     /// Resolves the active removal context, or nil where "Remove from List" is
     /// meaningless (All Films, Search, Recents, Unwatched, the smart lists, Imports, and
-    /// the Reports tabs other than Hall of Fame).
+    /// the Insights tabs other than Hall of Fame).
     ///
-    /// The gallery hosts can never observe `.hallOfFame` — Reports is not a gallery
+    /// The gallery hosts can never observe `.hallOfFame` — Insights is not a gallery
     /// view, and GalleryContextMenu additionally gates the whole item on
     /// `ViewCapabilities.showsRemoveFromListInTrashMenu`, which is false there — so
     /// resolving all three contexts in one place is a superset that costs those callers
     /// nothing and removes a divergence point.
     static func currentListContext(appState: AppState) -> ListContext? {
-        if appState.selectedSidebarItem == .libraryItem(.reports) {
-            return ReportsState.shared.selectedCategory == .hallOfFame ? .hallOfFame : nil
+        if appState.selectedSidebarItem == .libraryItem(.insights) {
+            return InsightsState.shared.selectedCategory == .hallOfFame ? .hallOfFame : nil
         }
         if appState.selectedSidebarItem == .libraryItem(.filmQueue) {
             return .filmQueue

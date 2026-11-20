@@ -1,24 +1,24 @@
-// MARK: - ReportsView.swift
+// MARK: - InsightsView.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// Displays reports and analytics for the film library.
 
 import SwiftUI
 
-struct ReportsView: View {
+struct InsightsView: View {
     @Environment(SelectionState.self) private var selectionState
-    var reportsState = ReportsState.shared
+    var reportsState = InsightsState.shared
 
     var body: some View {
         VStack(spacing: 0) {
-            ReportsTitleBar()
+            InsightsTitleBar()
             
-            ReportsContentSwitcher()
+            InsightsContentSwitcher()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color(NSColor.controlBackgroundColor).opacity(0.5))
-        /// Switching Reports tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
+        /// Switching Insights tabs swaps the whole content view, but SelectionState is one shared instance that persists across the swap.
         /// Without this clear, a selection would survive into a tab where nothing is highlighted, and reappear later. This matches the clear on full
         /// view switches (see AppState.navigate(to:)). It fires on selectedCategory, not the deferred displayedCategory, so it clears on request from any source.
         .onChange(of: reportsState.selectedCategory) { _, _ in
@@ -27,16 +27,16 @@ struct ReportsView: View {
     }
 }
 
-// MARK: - Reports Title Bar
-private struct ReportsTitleBar: View {
-    var reportsState = ReportsState.shared
+// MARK: - Insights Title Bar
+private struct InsightsTitleBar: View {
+    var reportsState = InsightsState.shared
     static let buttonWidth: CGFloat = 14
     
     var body: some View {
         GenericTitleBar(
             glyph: reportsState.selectedCategory.glyph,
             leadingContent: {
-                ReportsCategoryPicker()
+                InsightsCategoryPicker()
                     .frame(width: GalleryTitleBar.pickerWidth)
                     .padding(.leading, GalleryTitleBar.pickerLeading)
             },
@@ -48,7 +48,7 @@ private struct ReportsTitleBar: View {
                     } label: {
                         Image(systemName: "square.and.arrow.up")
                             .font(.system(size: 12))
-                            .frame(width: ReportsTitleBar.buttonWidth)
+                            .frame(width: InsightsTitleBar.buttonWidth)
                     }
                     .fixedSize()
                     .help("Export Insights…")
@@ -61,31 +61,31 @@ private struct ReportsTitleBar: View {
     
 }
 
-// MARK: - Reports Category Picker
-private struct ReportsCategoryPicker: View {
-    var reportsState = ReportsState.shared
+// MARK: - Insights Category Picker
+private struct InsightsCategoryPicker: View {
+    var reportsState = InsightsState.shared
 
     var body: some View {
         SubcategoryPicker(
             label: "Insights Category",
             style: .menu,
-            options: ReportsCategory.allCases,
+            options: InsightsCategory.allCases,
             selection: reportsState.selectedCategory,
             title: \.displayName,
             onSelect: { reportsState.selectCategory($0, immediate: true) })
     }
 }
 
-// MARK: - Reports Content Switcher
+// MARK: - Insights Content Switcher
 /// Only the active tab's view is in the hierarchy at a time. Keeping every tab alive (a ZStack) slowed everything down. Each visited tab kept a
 /// live film-event subscriber, an AppKit subtree, and a large SwiftUI layout, all of which took part in every layout pass.
 ///
 /// This reads `displayedCategory`, not `selectedCategory`. The Picker label updates at once. The content swap waits in
-/// ReportsState.selectCategory, so it runs after the Picker's menu-dismissal fade has been committed. The fade then runs out of process.
+/// InsightsState.selectCategory, so it runs after the Picker's menu-dismissal fade has been committed. The fade then runs out of process.
 ///
 /// The `.transaction` below removes any inherited animation from the incoming tab's first render.
-private struct ReportsContentSwitcher: View {
-    var reportsState = ReportsState.shared
+private struct InsightsContentSwitcher: View {
+    var reportsState = InsightsState.shared
 
     var body: some View {
         Group {
@@ -98,25 +98,25 @@ private struct ReportsContentSwitcher: View {
                 HallOfFameView()
             case .releaseWishlist:
                 ReleaseWishlistView()
-            case .dataVisualizations:
+            case .insights:
                 DataVisualizationsView()
             }
         }
-        /// Strips inherited animation so the incoming tab renders at once. It sits here, not on ReportsView, so it does not suppress animations in the title bar or export button.
+        /// Strips inherited animation so the incoming tab renders at once. It sits here, not on InsightsView, so it does not suppress animations in the title bar or export button.
         .transaction { $0.animation = nil; $0.disablesAnimations = true }
     }
 }
 
-// MARK: - Reports State
+// MARK: - Insights State
 @MainActor
 @Observable
-final class ReportsState {
-    static let shared = ReportsState()
+final class InsightsState {
+    static let shared = InsightsState()
     
-    var selectedCategory: ReportsCategory = .primary
-    /// The category mounted in ReportsContentSwitcher. It trails `selectedCategory` by two run-loop cycles on user-driven switches,
+    var selectedCategory: InsightsCategory = .primary
+    /// The category mounted in InsightsContentSwitcher. It trails `selectedCategory` by two run-loop cycles on user-driven switches,
     /// so the heavy swap does not compete with the Picker's fade (see selectCategory). Labels read `selectedCategory` and stay instant.
-    private(set) var displayedCategory: ReportsCategory = .primary
+    private(set) var displayedCategory: InsightsCategory = .primary
     /// The release rows selected in the release table on screen (Release Wishlist, Purchase
     /// Tracker, Price Tracker), written by each table's selection handler. SelectionState holds
     /// only film IDs; the FilmSheet's leave-the-view check needs the rows, since those tables
@@ -134,10 +134,10 @@ final class ReportsState {
     private var priceTrackerData: [ReleaseData] = []
     private var hallOfFameData: [HallOfFameFilm] = []
     private var wishlistData: [WishlistRelease] = []
-    /// The Data Visualizations tab's last full recalculation, used as its mount cache. The PDF export does not read it. It is
+    /// The Insights tab's last full recalculation, used as its mount cache. The PDF export does not read it. It is
     /// `@ObservationIgnored` because no view body reads it (the tab seeds from it in `onAppear`), and each background pass rewrites it.
     @ObservationIgnored private var visualizations: DVDataset?
-    /// The Data Visualizations tab's last viewing-period figures, with the key they were computed from. Rebuilding them walks every parsed
+    /// The Insights tab's last viewing-period figures, with the key they were computed from. Rebuilding them walks every parsed
     /// viewing. The tab rebuilt them on every mount, even when the stepper was unchanged, so this cache serves them.
     @ObservationIgnored private var periodCache: (key: PeriodKey, period: ViewingPeriodStatistics)?
 
@@ -168,11 +168,11 @@ final class ReportsState {
 
     /// Categories whose stores were populated this launch. "Never loaded" must scan at mount, to avoid a placeholder flash. "Loaded and empty"
     /// can show the placeholder, and the deferred reconcile confirms it.
-    @ObservationIgnored private var loadedCategories: Set<ReportsCategory> = []
+    @ObservationIgnored private var loadedCategories: Set<InsightsCategory> = []
 
     /// Memoized sort results for the tracker tabs, keyed by the inputs they came from. Seeding reuses the cached array, so the `data` equality
     /// check short-circuits on buffer identity and the lookup is O(1).
-    @ObservationIgnored private var sortedReleaseCaches: [ReportsCategory: SortedReleaseCache] = [:]
+    @ObservationIgnored private var sortedReleaseCaches: [InsightsCategory: SortedReleaseCache] = [:]
 
     private struct SortedReleaseCache {
         let data: [ReleaseData]
@@ -180,41 +180,41 @@ final class ReportsState {
         let sorted: [ReleaseData]
     }
 
-    func hasLoadedData(for category: ReportsCategory) -> Bool {
+    func hasLoadedData(for category: InsightsCategory) -> Bool {
         loadedCategories.contains(category)
     }
 
     /// Raw (unsorted) cached rows for the tracker categories.
-    func cachedReleases(for category: ReportsCategory) -> [ReleaseData] {
+    func cachedReleases(for category: InsightsCategory) -> [ReleaseData] {
         switch category {
         case .costTracker:  return costTrackerData
         case .priceTracker: return priceTrackerData
-        case .hallOfFame, .releaseWishlist, .dataVisualizations: return []
+        case .hallOfFame, .releaseWishlist, .insights: return []
         }
     }
 
     var cachedHallOfFameFilms: [HallOfFameFilm] { hallOfFameData }
     var cachedWishlistReleases: [WishlistRelease] { wishlistData }
     var cachedVisualizations: DVDataset? { visualizations }
-    /// Where the Data Visualizations tab was scrolled to when last left, for the next
+    /// Where the Insights tab was scrolled to when last left, for the next
     /// mount to restore (DVCanvasScrollView) when "maintain scroll position" is on.
     @ObservationIgnored var visualizationsScrollAnchor: DVScrollAnchor?
 
     /// The sort order last active in a tracker tab, or nil if none has been
     /// recorded yet this launch. Seeded back into the tab on mount so the cached
     /// sorted array remains valid (and so a user's column sort survives switches).
-    func savedSortOrder(for category: ReportsCategory) -> [KeyPathComparator<ReleaseData>]? {
+    func savedSortOrder(for category: InsightsCategory) -> [KeyPathComparator<ReleaseData>]? {
         switch category {
         case .costTracker:  return costTrackerSortOrder.isEmpty ? nil : costTrackerSortOrder
         case .priceTracker: return priceTrackerSortOrder.isEmpty ? nil : priceTrackerSortOrder
-        case .hallOfFame, .releaseWishlist, .dataVisualizations: return nil
+        case .hallOfFame, .releaseWishlist, .insights: return nil
         }
     }
 
     /// Returns the memoized sorted array iff it was computed from exactly this
     /// data and sort order; nil forces the caller to sort (and re-cache).
     func cachedSortedReleases(
-        for category: ReportsCategory,
+        for category: InsightsCategory,
         data: [ReleaseData],
         sortOrder: [KeyPathComparator<ReleaseData>]
     ) -> [ReleaseData]? {
@@ -228,7 +228,7 @@ final class ReportsState {
     /// computed from, for reuse on the next mount of this category.
     func updateSortedReleases(
         _ sorted: [ReleaseData],
-        for category: ReportsCategory,
+        for category: InsightsCategory,
         data: [ReleaseData],
         sortOrder: [KeyPathComparator<ReleaseData>]
     ) {
@@ -243,7 +243,7 @@ final class ReportsState {
     
     /// - Parameter immediate: Swap the content now, rather than two run-loop turns later. The title-bar pop-up passes true. Its NSPopUpButton
     ///   sends the action only after the menu fade (see SubcategoryPicker), so deferring would gain nothing. Menu commands and shortcuts defer.
-    func selectCategory(_ category: ReportsCategory, immediate: Bool = false) {
+    func selectCategory(_ category: InsightsCategory, immediate: Bool = false) {
         /// Don't skip if it's the same category - we might need to reload
         selectedCategory = category
 
@@ -264,7 +264,7 @@ final class ReportsState {
                 self.visibleItemCount = self.hallOfFameData.count
             case .releaseWishlist:
                 self.visibleItemCount = self.wishlistData.count
-            case .dataVisualizations:
+            case .insights:
                 self.visibleItemCount = 0
             }
         }
@@ -276,7 +276,7 @@ final class ReportsState {
     }
     
     /// Update data for a specific category
-    func updateData(_ data: [ReleaseData], for category: ReportsCategory) {
+    func updateData(_ data: [ReleaseData], for category: InsightsCategory) {
         switch category {
         case .costTracker:
             costTrackerData = data
@@ -288,7 +288,7 @@ final class ReportsState {
         case .priceTracker:
             priceTrackerData = data
             loadedCategories.insert(.priceTracker)
-        case .hallOfFame, .releaseWishlist, .dataVisualizations:
+        case .hallOfFame, .releaseWishlist, .insights:
             break
         }
         
@@ -380,13 +380,13 @@ final class ReportsState {
     #endif
     
     /// Update sort order for a specific category
-    func updateSortOrder(_ sortOrder: [KeyPathComparator<ReleaseData>], for category: ReportsCategory) {
+    func updateSortOrder(_ sortOrder: [KeyPathComparator<ReleaseData>], for category: InsightsCategory) {
         switch category {
         case .costTracker:
             costTrackerSortOrder = sortOrder
         case .priceTracker:
             priceTrackerSortOrder = sortOrder
-        case .hallOfFame, .releaseWishlist, .dataVisualizations:
+        case .hallOfFame, .releaseWishlist, .insights:
             break
         }
     }
@@ -416,35 +416,35 @@ struct PurchaseTotals: Equatable {
     }
 }
 
-// MARK: - Reports Export Data
+// MARK: - Insights Export Data
 /// The payload one report tab contributes to the whole-library PDF.
 ///
 /// Two tabs contribute today (see `LibraryPDFSection`). `ReleaseData` and `WishlistRelease` are unchanged, because the tabs still build
 /// their on-screen tables from them.
-struct ReportsExportData {
-    let category: ReportsCategory
+struct InsightsExportData {
+    let category: InsightsCategory
     let hallOfFameFilms: [HallOfFameFilm]?
-    /// Everything the Data Visualizations tab draws, for the rendered half of its sheet.
+    /// Everything the Insights tab draws, for the rendered half of its sheet.
     var visualizations: DVDataset? = nil
 }
 
-// MARK: - Reports Category
+// MARK: - Insights Category
 /// DECLARATION ORDER IS TAB ORDER: the title-bar picker, the sidebar's tab rows, and the
 /// Cmd+Up/Down cycle all follow allCases. The first case is the primary tab: the sidebar's
-/// Reports row is that tab itself, and the other tabs are its children.
-enum ReportsCategory: String, CaseIterable, Codable, Sendable {
-    case dataVisualizations
+/// Insights row is that tab itself, and the other tabs are its children.
+enum InsightsCategory: String, CaseIterable, Codable, Sendable {
+    case insights
     case costTracker
     case priceTracker
     case hallOfFame
     case releaseWishlist
 
     /// The primary tab. See the declaration-order note above.
-    static let primary: ReportsCategory = .dataVisualizations
+    static let primary: InsightsCategory = .insights
 
     var displayName: String {
         switch self {
-        case .dataVisualizations: return "Insights"
+        case .insights: return "Insights"
         case .costTracker: return "Purchase Tracker"
         case .priceTracker: return "Price Tracker"
         case .hallOfFame: return "Hall of Fame"
@@ -455,7 +455,7 @@ enum ReportsCategory: String, CaseIterable, Codable, Sendable {
     /// The tab's symbol pair: `.outline` for its sidebar row, `.filled` for the title bar.
     var symbol: ViewGlyphs.Glyph {
         switch self {
-        case .dataVisualizations: return ViewGlyphs.insights
+        case .insights: return ViewGlyphs.insights
         case .costTracker: return ViewGlyphs.costTracker
         case .priceTracker: return ViewGlyphs.priceTracker
         case .hallOfFame: return ViewGlyphs.hallOfFame

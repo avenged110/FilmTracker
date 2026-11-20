@@ -343,12 +343,12 @@ struct FilmTrackerApp: App, Loggable {
         /// the smart lists, this is off the launch path; its work is a few system calls.
         coordinator.startReleaseNotifications()
 
-        /// Warm the Data Visualizations tab's mount cache off the main thread, a little
+        /// Warm the Insights tab's mount cache off the main thread, a little
         /// after the launch work above so it does not compete with it (see
-        /// ReportsState.prefetchVisualizations).
+        /// InsightsState.prefetchVisualizations).
         Task(priority: .utility) { @MainActor [coordinator] in
             try? await Task.sleep(for: .seconds(2))
-            ReportsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
+            InsightsState.shared.prefetchVisualizations(films: coordinator.getAllFilms())
         }
 
         /// Load AppKit's data-detector scanner in the background now, so the first text
@@ -871,7 +871,7 @@ enum LibraryItem: Hashable {
     case allFilms
     case unwatched
     case recents
-    case reports
+    case insights
     case imports
     case filmQueue
     case search
@@ -883,7 +883,7 @@ enum LibraryItem: Hashable {
         case .allFilms:  return "All Films"
         case .unwatched: return "Unwatched"
         case .recents:   return "Recents"
-        case .reports:   return "Insights"
+        case .insights:   return "Insights"
         case .imports:   return "Imports"
         case .filmQueue: return "Queue"
         case .search:    return "Search"
@@ -896,7 +896,7 @@ enum SidebarItem: Hashable {
     case smartList(SmartListType)
     case list(UUID)
     case savedSearch(UUID)
-    /// A row of the sidebar's Tags section: the films carrying this tag (SidebarTags).
+    /// A row of the sidebar's Pinned Tags or Most-Used Tags: the films carrying this tag (SidebarTags).
     case tag(SidebarTag)
 }
 
@@ -1010,7 +1010,7 @@ final class AppState: Loggable {
         /// Switch, then flip, for each destination the shared GalleryView draws (GalleryReuse), so the pass that
         /// draws it already holds the destination's films and style (see GalleryView.preSwitchBeforeSidebarFlip).
         /// Search arrives already switched, with its seeded style (MainView.showSearch), so its pre-switch is a
-        /// no-op. Reports and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
+        /// no-op. Insights and Imports keep their own paths. Before initialization, GalleryView's handleReadyState does the first load.
         if dataCoordinator?.isInitialized == true, GalleryReuse.isSharedHostItem(newItem) {
             GalleryView.preSwitchBeforeSidebarFlip(from: oldItem, to: newItem)
         }
@@ -1355,7 +1355,7 @@ enum MenuDumpProbe {
         if let search = SavedSearchStore.shared.searches.first {
             await navigate(.savedSearch(search.id)); await dump("savedSearch")
         }
-        for item: LibraryItem in [.unwatched, .recents, .reports, .imports, .filmQueue] {
+        for item: LibraryItem in [.unwatched, .recents, .insights, .imports, .filmQueue] {
             await navigate(.libraryItem(item)); await dump("library-\(item)")
         }
         for type in SmartListType.allCases.prefix(4) {

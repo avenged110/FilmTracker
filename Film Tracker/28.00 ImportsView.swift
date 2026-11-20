@@ -2,7 +2,7 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// Displays import history and manages metadata/ratings imports. The scrollable
-/// session list is hosted by DataCoordinatorScrollView (27.40 RPTabDataViz.swift),
+/// session list is hosted by DataCoordinatorScrollView (27.40 INTabDataViz.swift),
 /// the shared AppKitScrollView facade for consumers that need nothing re-injected
 /// into the hosted tree beyond DataCoordinator. The sessions themselves come from
 /// ImportHistory (28.20), an in-memory index of value records, not from a fetch.
@@ -39,6 +39,8 @@ struct ImportsView: View {
     /// removal animation, and tells it which part of the list is on screen (see
     /// ImportSessionList). Anchors are never published.
     @State private var listScrollProxy = AppKitScrollProxy(tracksAnchors: false, tracksViewport: true)
+    /// The StatusBar's height, 0 when hidden: the list's bottom headroom and the placeholder's inset.
+    @CurrentStatusBar private var statusBar
 
     var body: some View {
         /// Compute once per render pass; used for both the empty-state check and
@@ -105,6 +107,8 @@ struct ImportsView: View {
                     title: "No Imports",
                     message: emptyStateMessage
                 )
+                /// Centered in the room above the StatusBar.
+                .statusBarInset()
             } else {
                 /// Completed import sessions, each rendered as its own bounded box.
                 /// Boxes grow with the view up to `importBoxMaxWidth`; beyond that the
@@ -114,7 +118,7 @@ struct ImportsView: View {
                 /// The list itself is a dedicated struct (not built inline here)
                 /// because its removal-animation state must live inside the
                 /// NSHostingView created by AppKitScrollView — see ImportSessionList.
-                DataCoordinatorScrollView(scrollProxy: listScrollProxy) {
+                DataCoordinatorScrollView(scrollProxy: listScrollProxy, scrollerBottomInset: statusBar.height) {
                     ImportSessionList(
                         sessions: sessions,
                         scrollProxy: listScrollProxy,
@@ -124,6 +128,9 @@ struct ImportsView: View {
                         onDelete: { deleteSession($0) },
                         onDeleteAll: { deleteAllSessions() }
                     )
+                    /// As in the gallery, the cards scroll beneath the StatusBar (MainView's overlay), and the
+                    /// document ends a bar's height lower so the last card can scroll clear of it.
+                    .padding(.bottom, statusBar.height)
                 }
                 .background(Color(NSColor.underPageBackgroundColor))
             }
@@ -227,9 +234,14 @@ struct ImportsView: View {
     /// Outside that window this is ImportHistory's own array, so the list receives the
     /// same storage on every pass rather than a copy.
     private var filteredSessions: [ImportSessionRecord] {
-        let records = importHistory.records(for: importsState.selectedCategory,
-                                            in: dataCoordinator.persistentContainer)
-        guard isImportBusy, let currentID = importProgress.currentSessionID else { return records }
+        Self.listedSessions(in: dataCoordinator.persistentContainer) }
+
+    /// The sessions the selected tab lists, shared with the StatusBar so its counts match the cards on screen.
+    static func listedSessions(in container: NSPersistentContainer) -> [ImportSessionRecord] {
+        let progress = ImportProgress.shared
+        let records = ImportHistory.shared.records(for: ImportsState.shared.selectedCategory, in: container)
+        guard progress.isImporting || progress.isUILingering,
+              let currentID = progress.currentSessionID else { return records }
         return records.filter { $0.id != currentID } }
 
     /// The single lock in the imports flow: true while an import is running or its

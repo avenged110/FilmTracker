@@ -1,7 +1,7 @@
-// MARK: - ReportExporter.swift
+// MARK: - InsightsExporter.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Turns one ReportsView tab into the PDF sheet that reports it.
+/// Turns one InsightsView tab into the PDF sheet that reports it.
 ///
 /// This file holds no PDF machinery. Page geometry, fonts, the fill palette, the drawing primitives, and the
 /// paginated table renderer live in the shared stack described at the top of PDFCore.swift (85.00), which the
@@ -16,9 +16,9 @@ import AppKit
 import Foundation
 import SwiftUI
 
-// MARK: - Reports PDF Exporter
+// MARK: - Insights PDF Exporter
 @MainActor
-enum ReportsPDFExporter {
+enum InsightsPDFExporter {
     // MARK: - Section Building
 
     /// The sheet one report tab's data becomes, or `nil` when that tab has nothing to say.
@@ -29,19 +29,19 @@ enum ReportsPDFExporter {
     /// Hall of Fame is one table. Data Visualizations is a STACK of drawn blocks — the
     /// tab's own page in print form — which is why this vends a `PDFSheet` rather than a
     /// section.
-    static func sheet(for data: ReportsExportData) -> PDFSheet? {
+    static func sheet(for data: InsightsExportData) -> PDFSheet? {
         switch data.category {
         case .hallOfFame:
             guard let films = data.hallOfFameFilms, !films.isEmpty else { return nil }
             return .table(hallOfFameSection(films: films, title: data.category.displayName))
-        case .dataVisualizations:
+        case .insights:
             guard let visualizations = data.visualizations else { return nil }
             let stack = dataVisualizationsSheet(visualizations: visualizations, title: data.category.displayName)
             guard !stack.blocks.isEmpty else { return nil }
             return .stack(stack)
         /// The cost, price, and wishlist tabs have no sheet here. The library PDF's Disc-based Releases section
         /// covers them (see `LibraryPDFSection`). These cases are listed rather than folded into a `default`, so
-        /// adding a sixth ReportsCategory still fails the build here.
+        /// adding a sixth InsightsCategory still fails the build here.
         case .costTracker, .priceTracker, .releaseWishlist:
             return nil
         }

@@ -51,6 +51,8 @@ struct GeneralSettingsView: View, Loggable {
         private var smartLists: Bool
     @AppStorage(preference: Preferences.showTagsInSidebarKey)
         private var showTagsInSidebarRaw: Int
+    @AppStorage(preference: Preferences.sidebarTagOrderKey)
+        private var sidebarTagOrderRaw: Int
     /// The count the tags picker shows. Kept apart from the preference, whose 0 means
     /// hidden, so the picker holds its choice while the checkbox is off.
     @State private var sidebarTagCount = Preferences.showTagsInSidebar == .hidden
@@ -260,7 +262,7 @@ struct GeneralSettingsView: View, Loggable {
                 get: { showTagsInSidebarRaw != Preferences.SidebarTagCount.hidden.rawValue },
                 set: { showTagsInSidebarRaw = $0 ? sidebarTagCount : Preferences.SidebarTagCount.hidden.rawValue })) {
                 HStack(spacing: 4) {
-                    Text("Show the")
+                    Text("Show up to")
                     Picker("", selection: Binding(
                         get: { sidebarTagCount },
                         set: { count in
@@ -276,13 +278,24 @@ struct GeneralSettingsView: View, Loggable {
                     .labelsHidden()
                     .frame(width: 60)
                     .disabled(showTagsInSidebarRaw == Preferences.SidebarTagCount.hidden.rawValue)
-                    Text("most-used tags in the sidebar")
+                    Text("of the")
+                    Picker("", selection: $sidebarTagOrderRaw) {
+                        ForEach(Preferences.SidebarTagOrder.allCases, id: \.self) { order in
+                            Text(order.pickerTitle).tag(order.rawValue)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                    .disabled(showTagsInSidebarRaw == Preferences.SidebarTagCount.hidden.rawValue)
+                    Text("tags in the sidebar")
                 }
                 .padding(.vertical, -2)
             }
             /// @AppStorage writes directly to UserDefaults, bypassing Preferences' setter and
             /// its preferencesChanged post, which SettingsObject (backups) listens for.
             .onChange(of: showTagsInSidebarRaw) { _, _ in
+                AppEventBus.shared.send(.view(.preferencesChanged)) }
+            .onChange(of: sidebarTagOrderRaw) { _, _ in
                 AppEventBus.shared.send(.view(.preferencesChanged)) }
 
             /// Governs whether the sidebar's "Film Queue" item accepts dragged films

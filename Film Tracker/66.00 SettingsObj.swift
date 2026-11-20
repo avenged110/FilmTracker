@@ -74,6 +74,10 @@ final class SettingsObject: LibraryObject {
         get { optionalInt("showTagsInSidebar") }
         set { setOptionalInt(newValue, "showTagsInSidebar") }
     }
+    var sidebarTagOrder: Int? {
+        get { optionalInt("sidebarTagOrder") }
+        set { setOptionalInt(newValue, "sidebarTagOrder") }
+    }
     var excludeQueuedFromUpForRotation: Bool? {
         get { optionalBool("excludeQueuedFromUpForRotation") }
         set { setOptionalBool(newValue, "excludeQueuedFromUpForRotation") }
@@ -207,6 +211,8 @@ final class SettingsObject: LibraryObject {
     // MARK: - Complex Preferences (stored as JSON strings)
     @NSManaged var selectedSortOptionsJSON: String?
     @NSManaged var ignoredDuplicatePairsJSON: String?
+    @NSManaged var pinnedTagsJSON: String?
+    @NSManaged var tagUsesJSON: String?
     
     // MARK: - Initialization
     /// Every default; see LibraryObject.init(detached:).

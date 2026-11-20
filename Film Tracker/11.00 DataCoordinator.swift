@@ -64,7 +64,7 @@ extension ViewIdentifier {
             /// The films carrying the tag, worked out afresh on every load, as a saved search's are.
             return .set(SidebarTags.filmIDs(taggedWith: tag, in: memoryStore.getAllFilms()))
 
-        case .allFilms, .list, .filmQueue, .reports, .imports, .search:
+        case .allFilms, .list, .filmQueue, .insights, .imports, .search:
             return .unrestricted
         }
     }
@@ -1122,7 +1122,7 @@ final class DataCoordinator: Loggable {
 
     func getAllFilms() -> [FilmSnapshot] { return memoryStore.getAllFilms() }
 
-    /// The films dictionary itself. The Reports tabs' off-main reconciles capture it and
+    /// The films dictionary itself. The Insights tabs' off-main reconciles capture it and
     /// compare it again before applying their rows: a dictionary compares equal in O(1)
     /// when its storage is shared, so "nothing changed meanwhile" costs nothing to confirm.
     func getAllFilmsMap() -> [UUID: FilmSnapshot] { return memoryStore.getAllFilmsMap() }
@@ -1131,7 +1131,7 @@ final class DataCoordinator: Loggable {
     var filmsVersion: UInt64 { memoryStore.filmsVersion }
 
     /// Every list a `#list` token can name — user lists, smart lists and the two ranked
-    /// Reports lists — with a way to resolve one name to its films.
+    /// Insights lists — with a way to resolve one name to its films.
     ///
     /// Membership is resolved per list rather than per film: the token asks for the films in
     /// one or two lists, so reading those lists' sets directly avoids asking every film in the
@@ -1141,7 +1141,7 @@ final class DataCoordinator: Loggable {
     ///
     /// With `outcome`, each list answers as it would once that FilmSheet save lands: the
     /// edited film is put in or taken out of every list whose membership the save decides
-    /// (user lists, the Queue, smart lists, Recents, the two Reports lists). Saved searches
+    /// (user lists, the Queue, smart lists, Recents, the two Insights lists). Saved searches
     /// answer as they stand. For filmWouldLeaveCurrentView, which judges a save beforehand.
     func searchListCatalog(adjustedFor outcome: FilmSaveOutcome? = nil) -> SearchListCatalog {
         /// `base` as stored, or with the outcome's film added or removed per `member`.
@@ -1197,13 +1197,13 @@ final class DataCoordinator: Loggable {
                       MetadataCache.shared.recentFilmIDs(for: category, overriding: $0.film).contains($0.film.id)
                   }))
         }
-        /// The two ranked Reports lists, under the names their tabs show, with the same
+        /// The two ranked Insights lists, under the names their tabs show, with the same
         /// membership tests the tabs use: a Hall of Fame position, and a top-level release on
         /// the wishlist (getWishlistReleases' filter).
-        entries.append(.init(name: ReportsCategory.hallOfFame.displayName, kind: .report, filmIDs: list({ [weak self] in
+        entries.append(.init(name: InsightsCategory.hallOfFame.displayName, kind: .report, filmIDs: list({ [weak self] in
             Set(self?.memoryStore.getAllFilms().filter { $0.hofPosition > 0 }.map(\.id) ?? [])
         }, member: { $0.inHallOfFame })))
-        entries.append(.init(name: ReportsCategory.releaseWishlist.displayName, kind: .report, filmIDs: list({ [weak self] in
+        entries.append(.init(name: InsightsCategory.releaseWishlist.displayName, kind: .report, filmIDs: list({ [weak self] in
             Set(self?.memoryStore.getAllFilms()
                 .filter { $0.releases.contains { $0.wishlist > 0 && $0.isTopLevel } }
                 .map(\.id) ?? [])
@@ -1229,7 +1229,7 @@ final class DataCoordinator: Loggable {
     /// is narrowed to), Unwatched, smart lists (SmartLists.membership), Recents
     /// (MetadataCache's rules with this film's entry replaced), saved searches and Search
     /// (against a list catalog adjusted for the save), the Sort & Filter menu's filters, and
-    /// the Reports tables' row rules. Saved searches named inside a query are taken as they
+    /// the Insights tables' row rules. Saved searches named inside a query are taken as they
     /// stand, so a #list token naming a saved search that the edit itself would change is the
     /// one case judged on the old data.
     func filmWouldLeaveCurrentView(_ outcome: FilmSaveOutcome) -> Bool {
@@ -1237,10 +1237,10 @@ final class DataCoordinator: Loggable {
         guard let current = memoryStore.getFilm(filmID) else { return false }
         let view = ViewStateManager.shared.activeView
         switch view {
-        case .reports:
-            /// The tab on screen: Reports switches its tabs itself (ReportsState), so the
+        case .insights:
+            /// The tab on screen: Insights switches its tabs itself (InsightsState), so the
             /// category activeView was entered with can be stale.
-            let category = ReportsState.shared.displayedCategory
+            let category = InsightsState.shared.displayedCategory
             let before = Self.reportRows(category, film: current, inHallOfFame: current.hofPosition > 0)
             guard !before.isEmpty else { return false }
             let after = Self.reportRows(category, film: outcome.film, inHallOfFame: outcome.inHallOfFame)
@@ -1249,7 +1249,7 @@ final class DataCoordinator: Loggable {
             /// of the selection when every selected row of its own is gone — even if another
             /// of its releases still has a row. Without a known selected row of this film,
             /// it is judged as a whole: no rows left.
-            let selected = ReportsState.shared.selectedReleaseRowIDs.intersection(before)
+            let selected = InsightsState.shared.selectedReleaseRowIDs.intersection(before)
             return selected.isEmpty ? after.isEmpty : selected.isDisjoint(with: after)
         case .imports:
             return false
@@ -1268,7 +1268,7 @@ final class DataCoordinator: Loggable {
         /// Built only for the two views that read lists through tokens.
         var lists: SearchListCatalog { searchListCatalog(adjustedFor: outcome) }
         switch view {
-        case .allFilms, .search, .reports, .imports:
+        case .allFilms, .search, .insights, .imports:
             break
         case .list(let listID):
             guard outcome.listIDs.contains(listID) else { return false }
@@ -1317,17 +1317,17 @@ final class DataCoordinator: Loggable {
         return true
     }
 
-    /// The row IDs Reports tab `category` has for `film`, by the same rules its table uses:
+    /// The row IDs Insights tab `category` has for `film`, by the same rules its table uses:
     /// the film's own ID in the Hall of Fame, a release ID per row in the three release
     /// tables, none in Insights.
-    private static func reportRows(_ category: ReportsCategory, film: FilmSnapshot,
+    private static func reportRows(_ category: InsightsCategory, film: FilmSnapshot,
                                    inHallOfFame: Bool) -> Set<UUID> {
         switch category {
         case .hallOfFame:         return inHallOfFame ? [film.id] : []
         case .releaseWishlist:    return Set(wishlistPairs(in: [film]).map(\.release.id))
         case .costTracker:        return Set(ReleaseData.costTrackerRows(films: [film]).map(\.releaseID))
         case .priceTracker:       return Set(ReleaseData.priceTrackerRows(films: [film]).map(\.releaseID))
-        case .dataVisualizations: return []
+        case .insights: return []
         }
     }
 
@@ -1396,7 +1396,7 @@ final class DataCoordinator: Loggable {
             let queued = getFilmQueueFilmIDs()
             guard let section = FilmQueueFilterState.shared.selectedFilter.section else { return !queued.isEmpty }
             return queued.contains { filmQueueSection(forFilm: $0) == section }
-        case .recents, .smartList, .unwatched, .tag, .allFilms, .search, .reports, .imports:
+        case .recents, .smartList, .unwatched, .tag, .allFilms, .search, .insights, .imports:
             guard case .set(let members) = viewID.resolveMembership(memoryStore: memoryStore, smartLists: smartLists)
             else { return hasDatabaseFilms }
             return !members.isEmpty
@@ -1497,7 +1497,7 @@ final class DataCoordinator: Loggable {
         trackOperation(
             rollback: { [weak self] in
                 guard let self, let pre = preSnapshot else { return }
-                self.memoryStore.updateFilm(pre)
+                self.memoryStore.updateFilm(pre, recordingTagUses: false)
                 AppEventBus.shared.send(.film(.updated(filmID: snapshot.id)))
                 self.reloadCurrentView()
                 Self.log("Rolled back updateFilm for \(snapshot.id)")
@@ -1684,7 +1684,7 @@ final class DataCoordinator: Loggable {
                 guard let self else { return }
                 /// Restore film snapshots, as one batch: one MetadataCache store and one
                 /// view-cache invalidation, rather than one per film.
-                self.memoryStore.addFilms(preSnapshots)
+                self.memoryStore.addFilms(preSnapshots, recordingTagUses: false)
                 /// Restore list memberships
                 for (filmID, listIDs) in preListMemberships {
                     for listID in listIDs {
@@ -1947,6 +1947,11 @@ final class DataCoordinator: Loggable {
         var snapshot = changeset.filmSnapshot
         snapshot.releases = finalReleases
 
+        /// The tag uses this save records (MemoryStore, TagUseStore), as they were, for a
+        /// failed write to put back: a save that never committed put no tag on a film.
+        let tagUsesBefore = snapshot.tags == preFilmSnapshot?.tags
+            ? [:] : TagUseStore.snapshot(snapshot.tags.map(SearchText.key))
+
         /// Step 3: Apply scalar Film changes to MemoryStore (instant UI)
         if changeset.isNewFilm {
             memoryStore.addFilm(snapshot)
@@ -2041,6 +2046,7 @@ final class DataCoordinator: Loggable {
                 } else if let preSnapshot = preFilmSnapshot {
                     self.memoryStore.restoreFilm(filmID: filmID, from: preSnapshot)
                 }
+                if !tagUsesBefore.isEmpty { TagUseStore.restore(tagUsesBefore) }
 
                 /// Rollback list membership changes
                 for listID in changeset.listsToAdd {
@@ -2715,7 +2721,7 @@ final class DataCoordinator: Loggable {
         /// current — which for .imports resolves to an empty base ID list and would publish
         /// films = [] / filmCount = 0 while the import is still running. The reload that
         /// actually matters is driven by the per-film events posted below, which reach
-        /// ViewStateManager.triggerReloadSync; that path skips .imports and .reports by
+        /// ViewStateManager.triggerReloadSync; that path skips .imports and .insights by
         /// design, and it re-resolves view membership rather than reusing the stale set a
         /// refresh would keep. This matches the behavior of the per-film method this replaced.
         trackOperation(rollback: { [weak self] in
@@ -2797,6 +2803,36 @@ final class DataCoordinator: Loggable {
             Self.log("applyBulkFieldEdit — nothing changed on \(filmIDs.count) film(s)")
             return
         }
+        /// In reverse: the gallery keeps the film of the turn's LAST update event in view
+        /// (GalleryView's SubscriptionHolder), and `filmIDs` is in gallery order, so this
+        /// leaves the first edited film as that target rather than the last — which, for a
+        /// whole-library selection, scrolled the gallery to its end.
+        commitFieldEdit(finalSnapshots.reversed(), pre: preSnapshots, fields: fields,
+                        explicitQueueFilmIDs: explicitQueueFilmIDs, keepsEditedFilmInView: true,
+                        description: "bulk edit")
+        let names = fields.map(\.rawValue).sorted().joined(separator: ", ")
+        Self.log("Bulk edit wrote \(fields.count) field(s) on \(finalSnapshots.count) film(s): \(names)")
+    }
+
+    /// The tail every many-film field edit shares (the MultiFilmSheet's, a tag rename or
+    /// deletion): memory in one batch, one `.film(.updated)` per film in the order given, one
+    /// reload, one tracked background write of only `fields`, and a rollback that restores
+    /// only those fields, so a later operation's change to another field of the same film
+    /// survives it.
+    ///
+    /// - Parameters:
+    ///   - explicitQueueFilmIDs: Films whose Queue section the edit set. Held in
+    ///     explicitQueueChangeFilmIDs while the events go out, as saveFilmChangeset does, so
+    ///     a film the edit makes due for rotation is not re-queued over the user's choice.
+    ///   - keepsEditedFilmInView: False for an edit the user made from outside the gallery
+    ///     (a tag rename), which should leave the gallery's scroll where it is rather than
+    ///     bring the last film announced into view.
+    ///   - onRollback: Undoes what the caller changed beside the films (a tag's pin), run
+    ///     after the films are restored if the write fails.
+    private func commitFieldEdit(_ finalSnapshots: [FilmSnapshot], pre preSnapshots: [UUID: FilmSnapshot],
+                                 fields: Set<FilmField>, explicitQueueFilmIDs: Set<UUID> = [],
+                                 keepsEditedFilmInView: Bool, description: String,
+                                 onRollback: (() -> Void)? = nil) {
         let written = fields
         let snapshotsToPersist = finalSnapshots
         let rollbackSnapshots = preSnapshots
@@ -2805,13 +2841,11 @@ final class DataCoordinator: Loggable {
         memoryStore.updateFilms(finalSnapshots)
 
         explicitQueueChangeFilmIDs.formUnion(explicitQueueFilmIDs)
-        /// In reverse: the gallery keeps the film of the turn's LAST update event in view
-        /// (GalleryView's SubscriptionHolder), and `filmIDs` is in gallery order, so this
-        /// leaves the first edited film as that target rather than the last — which, for a
-        /// whole-library selection, scrolled the gallery to its end.
-        for id in changedIDs.reversed() {
+        suppressesEditScroll = !keepsEditedFilmInView
+        for id in changedIDs {
             AppEventBus.shared.send(.film(.updated(filmID: id)))
         }
+        suppressesEditScroll = false
         explicitQueueChangeFilmIDs.subtract(explicitQueueFilmIDs)
         reloadCurrentView()
 
@@ -2823,17 +2857,86 @@ final class DataCoordinator: Loggable {
                 for field in written { current = field.copy(from: pre, into: current) }
                 restored.append(current)
             }
-            self.memoryStore.updateFilms(restored)
+            self.memoryStore.updateFilms(restored, recordingTagUses: false)
+            self.suppressesEditScroll = !keepsEditedFilmInView
             for id in changedIDs {
                 AppEventBus.shared.send(.film(.updated(filmID: id)))
             }
+            self.suppressesEditScroll = false
             self.reloadCurrentView()
-            Self.log("Rolled back the bulk edit of \(changedIDs.count) film(s)")
+            onRollback?()
+            Self.log("Rolled back the \(description) of \(changedIDs.count) film(s)")
         }) { [dataManager] in
             try await dataManager.applyFilmFields(snapshotsToPersist, fields: written)
         }
-        let names = written.map(\.rawValue).sorted().joined(separator: ", ")
-        Self.log("Bulk edit wrote \(written.count) field(s) on \(changedIDs.count) film(s): \(names)")
+    }
+
+    /// True while a many-film edit made away from the gallery announces its films
+    /// (commitFieldEdit's `keepsEditedFilmInView`). GalleryView's film-event subscription
+    /// reads it synchronously and then takes no scroll target from those events.
+    @ObservationIgnored private(set) var suppressesEditScroll = false
+
+    // MARK: - Tag Rename / Delete (TagSheet, tag menus)
+
+    /// Renames `tag` to `replacement` on every film carrying it, or removes it from them when
+    /// `replacement` is nil.
+    ///
+    /// Every spelling of the tag (SidebarTag compares by SearchText.key) becomes the one
+    /// replacement, in the place the film held it; a film left with two spellings of one tag
+    /// keeps the first. The new tag lists are worked out off the main actor, from a copy of
+    /// the films' tags. Back on it, a film whose tags changed in the meantime is worked out
+    /// again from its current tags, and a film that took the tag in the meantime is picked
+    /// up. The films are then written as a bulk edit is (commitFieldEdit): memory, events and
+    /// one reload here, the database in one background transaction, stamped modified as any
+    /// edit of a film is. The gallery's scroll is left alone.
+    ///
+    /// - Parameter onRollback: Run if the database write fails, after the films are restored.
+    func rewriteTag(_ tag: SidebarTag, to replacement: String?, onRollback: (() -> Void)? = nil) async {
+        let key = tag.key
+        let captured: [(id: UUID, tags: [String])] = SidebarTags
+            .filmIDs(taggedWith: tag, in: memoryStore.getAllFilms())
+            .compactMap { id in memoryStore.getFilm(id).map { (id, $0.tags) } }
+        let rewritten = await Task.detached(priority: .userInitiated) {
+            captured.compactMap { film in
+                SidebarTags.tags(film.tags, rewriting: key, to: replacement).map { (film.id, film.tags, $0) }
+            }
+        }.value
+
+        let lastModified = StorageDateFormatters.timestamp.format(Date())
+        var preSnapshots: [UUID: FilmSnapshot] = [:]
+        var finalSnapshots: [FilmSnapshot] = []
+        func write(_ film: FilmSnapshot, _ tags: [String]) {
+            var snapshot = film
+            snapshot.tags = tags
+            snapshot.lastModified = lastModified
+            preSnapshots[film.id] = film
+            finalSnapshots.append(snapshot)
+        }
+        for (id, oldTags, newTags) in rewritten {
+            guard let current = memoryStore.getFilm(id) else { continue }
+            if current.tags == oldTags {
+                write(current, newTags)
+            } else if let recomputed = SidebarTags.tags(current.tags, rewriting: key, to: replacement) {
+                write(current, recomputed)
+            }
+        }
+        /// Films that took the tag while the lists were worked out.
+        let seen = Set(captured.map(\.id))
+        for id in SidebarTags.filmIDs(taggedWith: tag, in: memoryStore.getAllFilms()).subtracting(seen) {
+            guard let current = memoryStore.getFilm(id),
+                  let tags = SidebarTags.tags(current.tags, rewriting: key, to: replacement) else { continue }
+            write(current, tags)
+        }
+        let action = replacement.map { "Rename of tag '\(tag.name)' to '\($0)'" } ?? "Deletion of tag '\(tag.name)'"
+        guard !finalSnapshots.isEmpty else {
+            Self.log("\(action) — no film carries it; nothing to write")
+            return
+        }
+        commitFieldEdit(finalSnapshots, pre: preSnapshots, fields: [.tags, .lastModified],
+                        keepsEditedFilmInView: false,
+                        description: replacement == nil ? "tag deletion" : "tag rename",
+                        onRollback: onRollback)
+        Self.log("\(action) wrote \(finalSnapshots.count) film(s)")
     }
 
     // MARK: - Hall of Fame Operations

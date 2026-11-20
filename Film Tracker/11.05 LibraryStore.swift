@@ -1107,6 +1107,7 @@ final class LibraryModel: @unchecked Sendable {
         ("queueSectionOnDrop", .optionalInt), ("strictFramesTableChecking", .optionalBool), ("showWatchDetailsAnnotationGlyphs", .optionalBool),
         ("atvq", .optionalBool), ("loggingEnabled", .optionalBool), ("selectedSortOptionsJSON", .optionalString),
         ("ignoredDuplicatePairsJSON", .optionalString), ("showTagsInSidebar", .optionalInt),
+        ("pinnedTagsJSON", .optionalString), ("sidebarTagOrder", .optionalInt), ("tagUsesJSON", .optionalString),
     ]
 
     /// Settings columns of preferences that no longer exist. They stay in the schema only so a store

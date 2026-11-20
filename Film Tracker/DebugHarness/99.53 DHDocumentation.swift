@@ -233,7 +233,7 @@ extension DebugHarness {
                 case "all": item = .libraryItem(.allFilms)
                 case "unwatched": item = .libraryItem(.unwatched)
                 case "recents": item = .libraryItem(.recents)
-                case "reports": item = .libraryItem(.reports)
+                case "reports": item = .libraryItem(.insights)
                 case "imports": item = .libraryItem(.imports)
                 case "queue": item = .libraryItem(.filmQueue)
                 case "smart": item = SmartListType.allCases.first { $0.rawValue == f[2] }.map { .smartList($0) }
@@ -249,7 +249,7 @@ extension DebugHarness {
                 switch appState.selectedSidebarItem {
                 case .libraryItem(.unwatched): UnwatchedState.shared.selectCategory(UnwatchedCategory.allCases[i])
                 case .libraryItem(.recents): RecentsState.shared.selectCategory(RecentsCategory.allCases[i])
-                case .libraryItem(.reports): ReportsState.shared.selectCategory(ReportsCategory.allCases[i])
+                case .libraryItem(.insights): InsightsState.shared.selectCategory(InsightsCategory.allCases[i])
                 case .libraryItem(.imports): ImportsState.shared.selectCategory(ImportsCategory.allCases[i], persist: false)
                 case .libraryItem(.filmQueue): FilmQueueFilterState.shared.selectFilter(FilmQueueFilter.allCases[i])
                 default: r.check("tab \(line)", false, "no tabs here")

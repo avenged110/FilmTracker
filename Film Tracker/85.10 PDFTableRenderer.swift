@@ -8,7 +8,7 @@
 /// breaks, per-page titles and footers — and nothing about what any particular table means.
 ///
 /// Everything renders through `PDFTableRenderer.render`: the report sheets built in
-/// ReportExporter.swift (27.50), which mostly pass plain string rows, and the
+/// InsightsExporter.swift (27.50), which mostly pass plain string rows, and the
 /// complete-library table built in PDFReport.swift (85.20), which passes styled
 /// cells and a grouped header. Those are the only two axes the callers differ on, and both
 /// are expressed as data on `PDFTableSection` rather than as a second renderer.
@@ -255,7 +255,7 @@ struct PDFCellBorders: OptionSet, Hashable, Sendable {
 /// A titled table: one heading, one column set, and the rows beneath it.
 ///
 /// A "section" rather than a "document" because one PDF may hold several — the complete
-/// library export writes its own section and then appends one per ReportsView tab into the
+/// library export writes its own section and then appends one per InsightsView tab into the
 /// same file, each starting on a fresh page with its own geometry.
 struct PDFTableSection {
     var title: String
@@ -323,7 +323,7 @@ struct PDFTableSection {
         self.rows = rows
     }
 
-    /// Convenience for the plain-text tables the ReportsView tab exports build: every cell
+    /// Convenience for the plain-text tables the InsightsView tab exports build: every cell
     /// unfilled, taking its column's alignment.
     init(title: String, columns: [PDFTableColumn], textRows: [[String]]) {
         self.init(title: title,
@@ -1600,7 +1600,7 @@ enum PDFSheet {
 // MARK: - Section Stack
 
 /// A page of pre-drawn blocks stacked one under another — the Data Visualizations sheet,
-/// whose sections are drawn by the tab's own canvas nodes (see `ReportsPDFExporter`).
+/// whose sections are drawn by the tab's own canvas nodes (see `InsightsPDFExporter`).
 struct PDFSectionStack {
     /// The heading printed at the top of every page, beside the brand mark.
     var title: String
@@ -1623,7 +1623,7 @@ struct PDFSectionStack {
 }
 
 /// A unit of vector content the stack does not lay out itself — the Data Visualizations
-/// page's own sections, drawn by its canvas nodes (see `ReportsPDFExporter`). The stack only needs
+/// page's own sections, drawn by its canvas nodes (see `InsightsPDFExporter`). The stack only needs
 /// its size to place it and a way to draw it; it never looks inside.
 ///
 /// A block is never split across pages. One that would overrun the page it starts on

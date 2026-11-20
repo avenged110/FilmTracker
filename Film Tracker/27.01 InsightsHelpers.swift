@@ -1,7 +1,7 @@
-// MARK: - ReportsHelpers.swift
+// MARK: - InsightsHelpers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// Reusable view components and configuration types shared across ReportsView tabs.
+/// Reusable view components and configuration types shared across InsightsView tabs.
 
 import SwiftUI
 import AppKit
@@ -50,14 +50,14 @@ struct EmptyStateConfig {
     let noDataMessage: String
 }
 
-// MARK: - Reports Empty State Wrapper
+// MARK: - Insights Empty State Wrapper
 
 /// Wraps a report tab's content in the standard two-stage empty-state guard. With no films, the first placeholder shows. With an empty
 /// tab dataset, the second shows. Otherwise `content` is shown.
 ///
 /// Usage:
 /// ```swift
-/// ReportsEmptyStateWrapper(
+/// InsightsEmptyStateWrapper(
 ///     totalFilmCount: dataCoordinator.totalFilmCount,
 ///     isEmpty: films.isEmpty,
 ///     config: emptyStateConfig
@@ -65,7 +65,7 @@ struct EmptyStateConfig {
 ///     // active content
 /// }
 /// ```
-struct ReportsEmptyStateWrapper<Content: View>: View {
+struct InsightsEmptyStateWrapper<Content: View>: View {
     let totalFilmCount: Int
     let isEmpty: Bool
     let config: EmptyStateConfig
@@ -94,9 +94,9 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
     }
 }
 
-// MARK: - Reports Ranked List View
+// MARK: - Insights Ranked List View
 
-/// The ranked list used by Hall of Fame and Release Wishlist. It is a headerless `ReportTable` whose first two columns are always the
+/// The ranked list used by Hall of Fame and Release Wishlist. It is a headerless `InsightsTable` whose first two columns are always the
 /// position ("12.") and the name. The caller supplies the rest. It handles status bar spacing and selection sync with `SelectionState`.
 ///
 /// **Row anatomy:**
@@ -106,7 +106,7 @@ struct ReportsEmptyStateWrapper<Content: View>: View {
 ///
 /// The name is the only flexible column: it takes whatever the position and the fixed-width
 /// trailing columns leave, and truncates.
-struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID == UUID {
+struct InsightsRankedListView<Item: RankedItem & Equatable>: View where Item.ID == UUID {
     @Environment(SelectionState.self) private var selectionState
 
     let items: [Item]
@@ -117,27 +117,27 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
     /// The primary display name for each row item.
     let primaryLabel: (Item) -> String
     /// The fixed-width columns to the right of the name.
-    let trailingColumns: [ReportTableColumn<Item>]
+    let trailingColumns: [InsightsTableColumn<Item>]
     /// The narrowest the name column may get before the trailing columns give way.
     var primaryMinWidth: CGFloat = 80
-    /// The film each row stands for, for the gallery contextual menu (ReportTable.menuFilmID).
+    /// The film each row stands for, for the gallery contextual menu (InsightsTable.menuFilmID).
     let menuFilmID: (Item) -> UUID
 
     /// Row pitch of the SwiftUI `List(.inset)` this replaced (12 pt text, 2 pt vertical padding).
     static var rowHeight: CGFloat { 27 }
 
-    private var columns: [ReportTableColumn<Item>] {
-        [ReportTableColumn(id: "position", width: 30, alignment: .right,
+    private var columns: [InsightsTableColumn<Item>] {
+        [InsightsTableColumn(id: "position", width: 30, alignment: .right,
                            font: .systemFont(ofSize: 12, weight: .medium), isSecondary: true,
                            content: .text { "\($0.position)." }),
-         ReportTableColumn(id: "name", width: primaryMinWidth, minWidth: primaryMinWidth,
+         InsightsTableColumn(id: "name", width: primaryMinWidth, minWidth: primaryMinWidth,
                            maxWidth: .greatestFiniteMagnitude,
                            content: .text(primaryLabel))]
         + trailingColumns
     }
 
     var body: some View {
-        ReportTable(rows: items, columns: columns, selection: $selection,
+        InsightsTable(rows: items, columns: columns, selection: $selection,
                     showsHeader: false, rowHeight: Self.rowHeight, onMove: onMove, topInset: 5,
                     menuFilmID: menuFilmID)
             .statusBarInset()
@@ -154,7 +154,7 @@ struct ReportsRankedListView<Item: RankedItem & Equatable>: View where Item.ID =
 
 // MARK: - Ranked Item Protocol
 
-/// An `Identifiable` type with an explicit 1-based sort position. `ReportsRankedListView` reads `position` directly. Both row types conform,
+/// An `Identifiable` type with an explicit 1-based sort position. `InsightsRankedListView` reads `position` directly. Both row types conform,
 /// so the conformance is required rather than falling back to a search.
 protocol RankedItem: Identifiable {
     var position: Int { get }
@@ -162,7 +162,7 @@ protocol RankedItem: Identifiable {
 
 // MARK: - Report Table (AppKit)
 ///
-/// The one table every Reports tab uses: a plain NSTableView driven directly, in place of
+/// The one table every Insights tab uses: a plain NSTableView driven directly, in place of
 /// SwiftUI's `Table` (the two trackers) and `List` (the two ranked lists).
 ///
 /// WHY. A sub-tab switch into a SwiftUI Table or
@@ -174,14 +174,14 @@ protocol RankedItem: Identifiable {
 /// and PDF export are unchanged. Multi-selection uses the same `Set<UUID>` binding. Drag-to-reorder uses SwiftUI `onMove`'s (IndexSet,
 /// destination) meaning, which matches NSTableView's "drop above row" index.
 
-/// One column of a `ReportTable`.
-struct ReportTableColumn<Row> {
+/// One column of a `InsightsTable`.
+struct InsightsTableColumn<Row> {
     enum Content {
         /// A single truncating line of text.
         case text((Row) -> String)
         /// A single truncating line built from runs that may each carry their own font; a
         /// run without one uses the column's.
-        case runs((Row) -> [ReportTextRun])
+        case runs((Row) -> [InsightsTextRun])
         /// A secondary SF Symbol and text after it, both in the column's muted style, or nothing for nil (the Hall of Fame's
         /// rotation column).
         case symbolText(symbol: String, (Row) -> String?)
@@ -189,7 +189,7 @@ struct ReportTableColumn<Row> {
         /// (the Hall of Fame's Queue column).
         case symbol(String, label: String, (Row) -> Bool)
         /// A format badge (Wishlist, Hall of Fame): lettering on a rounded, colored plate, or nothing for nil.
-        case badge((Row) -> ReportBadge?)
+        case badge((Row) -> InsightsBadge?)
         /// The Hall of Fame's rating: a star in its tier's tint (RatingStarTint) and the number, or nothing for 0.
         case rating((Row) -> Int)
     }
@@ -204,25 +204,25 @@ struct ReportTableColumn<Row> {
     var isSecondary = false
     /// Extra empty space kept at the column's trailing edge, for the ranked lists' wider gaps.
     var trailingPad: CGFloat = 0
-    /// The sort key reported to `ReportTable.onSort`; nil makes the header unsortable.
+    /// The sort key reported to `InsightsTable.onSort`; nil makes the header unsortable.
     var sortKey: String? = nil
     let content: Content
 }
 
-/// One run of a `ReportTableColumn.Content.runs` cell.
-struct ReportTextRun {
+/// One run of a `InsightsTableColumn.Content.runs` cell.
+struct InsightsTextRun {
     let text: String
     var font: NSFont? = nil
 }
 
-/// A `ReportTableColumn.Content.badge` cell: its text and plate color. The lettering is the cell's secondary text color.
-struct ReportBadge {
+/// A `InsightsTableColumn.Content.badge` cell: its text and plate color. The lettering is the cell's secondary text color.
+struct InsightsBadge {
     let text: String
     let fill: NSColor
 
     /// A format's badge: the stored format string verbatim on its ReleaseCard band tint.
-    static func format(_ format: String) -> ReportBadge {
-        ReportBadge(text: format, fill: ReleaseFormatPalette.tint(for: format))
+    static func format(_ format: String) -> InsightsBadge {
+        InsightsBadge(text: format, fill: ReleaseFormatPalette.tint(for: format))
     }
 }
 
@@ -237,9 +237,9 @@ enum RatingStarTint {
     }
 }
 
-struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row.ID == UUID {
+struct InsightsTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row.ID == UUID {
     let rows: [Row]
-    let columns: [ReportTableColumn<Row>]
+    let columns: [InsightsTableColumn<Row>]
     @Binding var selection: Set<UUID>
     var showsHeader = true
     /// Row pitch in points.
@@ -260,7 +260,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let table = ReportNSTableView()
+        let table = InsightsNSTableView()
         table.style = .inset
         table.usesAlternatingRowBackgroundColors = true
         table.allowsMultipleSelection = true
@@ -301,7 +301,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         table.getContextMenu = { [weak coordinator] in coordinator?.contextMenu(forRow: $0) }
         if onMove != nil {
             table.registerForDraggedTypes([Self.rowDragType])
-            /// `.none`: the table draws no drop feedback. ReportNSTableView draws the sidebar-style indicator instead, since the built-in styles
+            /// `.none`: the table draws no drop feedback. InsightsNSTableView draws the sidebar-style indicator instead, since the built-in styles
             /// do not draw the circle in an `.inset` table. The source row stays put during the drag, and rows slide only on the drop (see `move`).
             /// `.gap` was tried and glitched, so it is not used.
             table.draggingDestinationFeedbackStyle = .none
@@ -336,10 +336,10 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
 
     @MainActor
     final class Coordinator: NSObject, NSTableViewDataSource, NSTableViewDelegate {
-        var parent: ReportTable?
+        var parent: InsightsTable?
         weak var table: NSTableView?
         private var rows: [Row] = []
-        private var columnsByID: [String: ReportTableColumn<Row>] = [:]
+        private var columnsByID: [String: InsightsTableColumn<Row>] = [:]
         private var hasFittedColumns = false
 
         /// Target/selector observer of the clip view's frame. NotificationCenter drops it when the coordinator deallocates, so no deinit is needed.
@@ -354,7 +354,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         /// Set while the coordinator changes the table, so the delegate callbacks are not reported back as user actions.
         private var isApplying = false
 
-        func apply(_ parent: ReportTable, force: Bool) {
+        func apply(_ parent: InsightsTable, force: Bool) {
             self.parent = parent
             guard let table else { return }
             isApplying = true
@@ -406,8 +406,8 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
             guard let tableColumn, rows.indices.contains(row),
                   let column = columnsByID[tableColumn.identifier.rawValue] else { return nil }
-            let cell = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? ReportTableCellView)
-                ?? ReportTableCellView(identifier: tableColumn.identifier)
+            let cell = (tableView.makeView(withIdentifier: tableColumn.identifier, owner: nil) as? InsightsTableCellView)
+                ?? InsightsTableCellView(identifier: tableColumn.identifier)
             cell.configure(column: column, row: rows[row])
             return cell
         }
@@ -423,7 +423,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         // MARK: Contextual Menu
 
         /// The gallery contextual menu for a secondary click on `row`, or nil when the table has no `menuFilmID`.
-        /// ReportNSTableView.menu(for:) has already confirmed the click landed on a row's cells.
+        /// InsightsNSTableView.menu(for:) has already confirmed the click landed on a row's cells.
         ///
         /// Selection rules match the gallery (DraggableListView.Coordinator.contextMenu(forRow:)). A click on a
         /// selected row leaves the selection alone and the menu acts on the group. A click on an unselected row
@@ -452,18 +452,18 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
         func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
             guard parent?.onMove != nil else { return nil }
             let item = NSPasteboardItem()
-            item.setString(String(row), forType: ReportTable.rowDragType)
+            item.setString(String(row), forType: InsightsTable.rowDragType)
             return item
         }
 
         func tableView(_ tableView: NSTableView, validateDrop info: any NSDraggingInfo,
                        proposedRow row: Int, proposedDropOperation op: NSTableView.DropOperation) -> NSDragOperation {
             guard parent?.onMove != nil, (info.draggingSource as? NSTableView) === tableView else {
-                (tableView as? ReportNSTableView)?.hideDropIndicator()
+                (tableView as? InsightsNSTableView)?.hideDropIndicator()
                 return []
             }
             if op == .on { tableView.setDropRow(row, dropOperation: .above) }
-            (tableView as? ReportNSTableView)?.showDropIndicator(aboveRow: row)
+            (tableView as? InsightsNSTableView)?.showDropIndicator(aboveRow: row)
             return .move
         }
 
@@ -473,7 +473,7 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
             var source = IndexSet()
             /// The dragged rows' pasteboard items, read directly. This avoids the unsafe stop pointer of enumerateDraggingItems.
             for item in info.draggingPasteboard.pasteboardItems ?? [] {
-                if let string = item.string(forType: ReportTable.rowDragType),
+                if let string = item.string(forType: InsightsTable.rowDragType),
                    let index = Int(string) { source.insert(index) }
             }
             return move(source, to: row)
@@ -519,12 +519,12 @@ struct ReportTable<Row: Identifiable & Equatable>: NSViewRepresentable where Row
     }
 }
 
-/// ReportTable's NSTableView. It adds only the gallery list's side-padding deselect (DraggableListTableView.mouseDown, 23.30 GalleryListView.swift).
+/// InsightsTable's NSTableView. It adds only the gallery list's side-padding deselect (DraggableListTableView.mouseDown, 23.30 GalleryListView.swift).
 ///
 /// With `.inset`, the margins beside each row's highlight belong to a row but to no column. A click there clears the selection and is absorbed,
 /// as a click on empty space below the last row is.
-final class ReportNSTableView: NSTableView {
-    private(set) var dropIndicator: ReportDropIndicatorView?
+final class InsightsNSTableView: NSTableView {
+    private(set) var dropIndicator: InsightsDropIndicatorView?
 
     /// Places the drop indicator on the boundary above `row`. `numberOfRows` means below the last row.
     func showDropIndicator(aboveRow row: Int) {
@@ -534,11 +534,11 @@ final class ReportNSTableView: NSTableView {
         let reference = min(row, numberOfRows - 1)
         let minX = frameOfCell(atColumn: 0, row: reference).minX
         let maxX = frameOfCell(atColumn: numberOfColumns - 1, row: reference).maxX
-        let height = ReportDropIndicatorView.height
-        let frame = NSRect(x: minX - ReportDropIndicatorView.circleDiameter / 2, y: y - height / 2,
-                           width: maxX - minX + ReportDropIndicatorView.circleDiameter / 2, height: height)
+        let height = InsightsDropIndicatorView.height
+        let frame = NSRect(x: minX - InsightsDropIndicatorView.circleDiameter / 2, y: y - height / 2,
+                           width: maxX - minX + InsightsDropIndicatorView.circleDiameter / 2, height: height)
         let indicator = dropIndicator ?? {
-            let view = ReportDropIndicatorView(frame: frame)
+            let view = InsightsDropIndicatorView(frame: frame)
             addSubview(view)
             dropIndicator = view
             return view
@@ -580,7 +580,7 @@ final class ReportNSTableView: NSTableView {
     }
     #endif
 
-    /// Supplies the contextual menu for a row. Wired to ReportTable.Coordinator.contextMenu(forRow:).
+    /// Supplies the contextual menu for a row. Wired to InsightsTable.Coordinator.contextMenu(forRow:).
     var getContextMenu: ((Int) -> NSMenu?)?
 
     /// The hit test matches mouseDown: a row and a column. The inset margins beside a row belong to no column, and a
@@ -602,8 +602,8 @@ final class ReportNSTableView: NSTableView {
     }
 }
 
-/// The sidebar-style drop indicator that ReportNSTableView shows between rows: a hollow circle at the leading end, with a line in the accent color.
-final class ReportDropIndicatorView: NSView {
+/// The sidebar-style drop indicator that InsightsNSTableView shows between rows: a hollow circle at the leading end, with a line in the accent color.
+final class InsightsDropIndicatorView: NSView {
     static let circleDiameter: CGFloat = 6
     static let lineWidth: CGFloat = 2
     static let height: CGFloat = circleDiameter + lineWidth
@@ -629,11 +629,11 @@ final class ReportDropIndicatorView: NSView {
     }
 }
 
-/// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Reports tab switch builds every visible
+/// A report table cell. It draws its own text, badge, or rating, rather than hosting an NSTextField. A Insights tab switch builds every visible
 /// cell at once, and per-cell text fields cost a large share of that (measured with a profiler). Cells never edit or take focus, and the text is exposed as a static text element.
-final class ReportTableCellView: NSTableCellView {
+final class InsightsTableCellView: NSTableCellView {
     private enum Drawn {
-        case text(String), runs([ReportTextRun]), symbolText(symbol: String, String), symbol(String), badge(ReportBadge), rating(Int)
+        case text(String), runs([InsightsTextRun]), symbolText(symbol: String, String), symbol(String), badge(InsightsBadge), rating(Int)
     }
     private var drawn: Drawn = .text("")
     private var font: NSFont = .systemFont(ofSize: 12)
@@ -647,7 +647,8 @@ final class ReportTableCellView: NSTableCellView {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 10, weight: .regular)
                 .applying(.init(paletteColors: [color])))
     }
-    /// The badge plate's and shadow's opacity: enough to keep each format's color, muted like the other detail columns.
+    /// The badge plate's and shadow's opacity on an unselected row: enough to keep each format's color, muted like the other detail columns.
+    /// A selected row draws the plate at full opacity.
     private static let badgePlateOpacity: CGFloat = 0.6
     /// Room left of the plate for the shadow's blur.
     private static let badgeOutsideAllowance: CGFloat = 3
@@ -698,7 +699,7 @@ final class ReportTableCellView: NSTableCellView {
 
     override var isFlipped: Bool { true }
 
-    func configure<Row>(column: ReportTableColumn<Row>, row: Row) {
+    func configure<Row>(column: InsightsTableColumn<Row>, row: Row) {
         font = column.font
         alignment = column.alignment
         isSecondary = column.isSecondary
@@ -811,7 +812,8 @@ final class ReportTableCellView: NSTableCellView {
             /// show the shadow through it.
             NSGraphicsContext.saveGraphicsState()
             let context = NSGraphicsContext.current?.cgContext
-            context?.setAlpha(Self.badgePlateOpacity)
+            /// Full opacity on a selected row, as the lettering returns to full strength there; same draw pass, so both swap together.
+            context?.setAlpha(backgroundStyle == .emphasized ? 1 : Self.badgePlateOpacity)
             context?.beginTransparencyLayer(auxiliaryInfo: nil)
             Self.badgeShadow.set()
             badge.fill.setFill()

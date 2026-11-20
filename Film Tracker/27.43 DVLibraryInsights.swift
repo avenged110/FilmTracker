@@ -1,7 +1,7 @@
 // MARK: - DVLibraryInsights.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
-/// The figures the Data Visualizations tab adds on top of LibraryStatistics. LibraryInsights gives all-time figures across every date series
+/// The figures the Insights tab adds on top of LibraryStatistics. LibraryInsights gives all-time figures across every date series
 /// (viewings, purchases, lowest-price dates, and date added). ViewingPeriodStatistics gives one calendar year of viewing, optionally to date,
 /// beside the same span of the prior year. Both are plain value types built in one pass over FilmSnapshots. DVDataset bundles one recalculation so the tab can run it off the main actor.
 
@@ -37,6 +37,9 @@ struct DVRank: Identifiable, Equatable {
     var extras: [String] = []
     /// The release year, shown in parentheses after `name` where relevant (the Most Rewatched card). Nil when it does not apply.
     var year: Int? = nil
+    /// The raw count behind `value` where a chart scales by it (the Genres card). `value` is display copy, grouped past 999 ("1,027"),
+    /// so it cannot be parsed back.
+    var count: Int? = nil
 }
 
 /// One film in the "Coming Up Next Month" rotation list, with the figures that rank it for the card's six slots: rating, viewings, and purchased releases.
@@ -262,7 +265,8 @@ struct DVFilmViewings: Sendable {
         parsed.reserveCapacity(film.calendarTable.count)
         for entry in film.calendarTable {
             guard let parsedEntry = Self.parse(entry, calendar: calendar) else { continue }
-            parsed.append(parsedEntry)
+            /// A date before DateFloor reads as the floor's day.
+            parsed.append((DateFloor.clamp(parsedEntry.0), parsedEntry.1))
         }
         parsed.sort { $0.0 < $1.0 }
         dates = parsed.map(\.0)
@@ -294,7 +298,7 @@ private extension UInt8 {
 
 // MARK: - Recalculation Dataset
 
-/// Everything one recalculation of the Data Visualizations tab produces. One function computes it, so the first synchronous pass and the background passes
+/// Everything one recalculation of the Insights tab produces. One function computes it, so the first synchronous pass and the background passes
 /// cannot drift apart. It is `Sendable` because the background pass builds it off the main actor.
 struct DVDataset: Sendable {
     let stats: LibraryStatistics
@@ -1334,11 +1338,13 @@ struct LibraryInsights {
                 /// is unchanged everywhere else in the app, but it is the longest of the
                 /// seven fixed genres and truncates first in this card's narrow name column.
                 let name = entry.key == "Action and Adventure" ? "Action and Adv." : entry.key
-                return DVRank(name: name, value: Fmt.count(entry.value.n), extras: [avg, String(Fmt.percent(entry.value.n, of: genreTotal))])
+                return DVRank(name: name, value: Fmt.count(entry.value.n), extras: [avg, String(Fmt.percent(entry.value.n, of: genreTotal))],
+                              count: entry.value.n)
             }
-        let otherGenres = genreTotal - genreRows.reduce(0) { $0 + (Int($1.value) ?? 0) }
+        let otherGenres = genreTotal - genreRows.reduce(0) { $0 + ($1.count ?? 0) }
         if otherGenres > 0 {
-            genreRows.append(DVRank(name: "Other", value: Fmt.count(otherGenres), extras: ["", String(Fmt.percent(otherGenres, of: genreTotal))]))
+            genreRows.append(DVRank(name: "Other", value: Fmt.count(otherGenres), extras: ["", String(Fmt.percent(otherGenres, of: genreTotal))],
+                                    count: otherGenres))
         }
         genres = genreRows
         let ratingTotal = contentRatings.values.reduce(0, +)
@@ -1434,13 +1440,14 @@ struct LibraryInsights {
             if digits.count == 8 {
                 let year = digits[0] * 1000 + digits[1] * 100 + digits[2] * 10 + digits[3]
                 let month = digits[4] * 10 + digits[5], day = digits[6] * 10 + digits[7]
-                if (1...12).contains(month), (2...27).contains(day) { return year * 12 + month - 1 }
+                if (1...12).contains(month), (2...27).contains(day) { return year < DateFloor.year ? DateFloor.year * 12 : year * 12 + month - 1 }
             }
         }
         guard let date = parseDate(from: text) else { return nil }
         let parts = calendar.dateComponents([.year, .month], from: date)
         guard let year = parts.year, let month = parts.month else { return nil }
-        return year * 12 + month - 1
+        /// A date before DateFloor counts in the floor's first month.
+        return year < DateFloor.year ? DateFloor.year * 12 : year * 12 + month - 1
     }
 
     /// True when the film's digital copy is a lower tier than the best disc it owns. A 4K disc wants a 4K download. A Blu-ray wants a Blu-ray

@@ -307,7 +307,7 @@ extension DebugHarness {
         /// The negative control. Without it every check above could pass on a capability
         /// that is simply hard-wired true, asserting nothing.
         for (label, item) in [
-            ("reports", SidebarItem.libraryItem(.reports)),
+            ("reports", SidebarItem.libraryItem(.insights)),
             ("imports", SidebarItem.libraryItem(.imports)),
         ] {
             r.check("not-reachable:\(label)", !item.capabilities.supportsSectionDividers,
@@ -771,7 +771,7 @@ extension DebugHarness {
                 sv.contentView.setBoundsOrigin(.zero); sv.reflectScrolledClipView(sv.contentView)
             }
             await settle(300)
-            await go(.libraryItem(.reports), 1000)
+            await go(.libraryItem(.insights), 1000)
             await go(.libraryItem(.allFilms), 1000)
             r.check("provider-after-foreign-gallery", abs(restored - 6000) < 1 && y() < 1,
                     "restored \(restored), back from Reports at \(y()) (expected 0; 6000 = stale bank)")
@@ -1346,13 +1346,13 @@ extension DebugHarness {
         }
         search.clearSearch(); await settle(600)
 
-        // MARK: From and back to Reports
-        await go(.libraryItem(.reports), 1200)
+        // MARK: From and back to Insights
+        await go(.libraryItem(.insights), 1200)
         await enter()
         r.check("from-reports", inSearch && gridFilmIDs() == coordinator.films.map(\.id),
                 "in search \(inSearch), grid \(gridFilmIDs()?.count ?? -1)")
         await exit()
-        r.check("back-to-reports", appState.selectedSidebarItem == .libraryItem(.reports) && grid() == nil && table() == nil,
+        r.check("back-to-reports", appState.selectedSidebarItem == .libraryItem(.insights) && grid() == nil && table() == nil,
                 "item \(appState.selectedSidebarItem)")
         await go(.libraryItem(.allFilms))
         r.check("after-reports", gridFilmIDs() == coordinator.films.map(\.id), "grid \(gridFilmIDs()?.count ?? -1)")
@@ -2092,7 +2092,7 @@ extension DebugHarness {
 ///   • T1 A Film Queue tab restore in LIST style applies that tab's own origin. The list
 ///     must not apply the incoming tab's origin to the outgoing tab's rows. Galleries key
 ///     their origin by the loaded filter.
-///   • T2 A Reports / Imports round trip after a wheel scroll to the top returns to the
+///   • T2 A Insights / Imports round trip after a wheel scroll to the top returns to the
 ///     banked origin. The navigation banks the origin before the switch.
 ///   • T3 A search exit with a preserved selection puts the film's row at the top, as far as
 ///     the content allows, wherever it stood: at the bottom edge, mid-viewport, or near the end.
@@ -2220,7 +2220,7 @@ extension DebugHarness {
                 .filter { $0 < coordinator.films.count }.map { coordinator.films[$0].id })
         }
 
-        /// ---- P1 + T2: grid, wheel scroll to top, Reports round trip
+        /// ---- P1 + T2: grid, wheel scroll to top, Insights round trip
         appState.navigate(to: .libraryItem(.allFilms)); await settle(800)
         manager.updateListViewStyle(false); await settle(600)
         setY(6000); await settle(300)
@@ -2239,17 +2239,17 @@ extension DebugHarness {
             r.check("wheel-reached-top", sv.documentVisibleRect.minY == 0,
                     "y \(sv.documentVisibleRect.minY) after \(n) wheel events, \(trail.ys.count) moves")
         }
-        appState.navigate(to: .libraryItem(.reports)); await settle(1000)
+        appState.navigate(to: .libraryItem(.insights)); await settle(1000)
         appState.navigate(to: .libraryItem(.allFilms)); await settle(1000)
         r.check("T2-reports-round-trip-keeps-top", y() < 1, "y \(y()) (expected 0; 6000 = stale bank restored)")
         for i in 1...3 {
-            for dest in [SidebarItem.libraryItem(.reports), .libraryItem(.imports)] {
+            for dest in [SidebarItem.libraryItem(.insights), .libraryItem(.imports)] {
                 await bankDeep()
                 await wheelToTop()
                 let atTop = y()
                 appState.navigate(to: dest); await settle(900)
                 appState.navigate(to: .libraryItem(.allFilms)); await settle(1000)
-                r.check("T2-repeat\(i)-\(dest == .libraryItem(.reports) ? "reports" : "imports")-keeps-top",
+                r.check("T2-repeat\(i)-\(dest == .libraryItem(.insights) ? "reports" : "imports")-keeps-top",
                         atTop < 1 && y() < 1, "at top before leaving \(atTop), back at \(y())")
             }
         }

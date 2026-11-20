@@ -1,4 +1,4 @@
-// MARK: - ReportTrackers.swift
+// MARK: - InsightsTrackers.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// The Purchase Tracker and Price Tracker report views. Each lists releases from the library, with the rows
@@ -15,30 +15,30 @@ struct CostTrackerView: View {
     @State private var loadGeneration = 0
     
     var body: some View {
-        ReportsReleaseTableView(
+        InsightsReleaseTableView(
             category: .costTracker,
             releases: releases,
             emptyStateConfig: EmptyStateConfig(
-                glyph: ReportsCategory.costTracker.glyph,
+                glyph: InsightsCategory.costTracker.glyph,
                 noFilmsMessage: "Add films to your library to track costs.",
                 noDataMessage: "Add purchased releases with cost information to track spending."
             ),
             columns: [
-                ReportTableColumn(id: "title", title: "Title", width: 180, minWidth: 140,
+                InsightsTableColumn(id: "title", title: "Title", width: 180, minWidth: 140,
                                   maxWidth: .greatestFiniteMagnitude, sortKey: "filmTitle",
                                   content: .text { $0.filmTitle }),
-                ReportTableColumn(id: "cost", title: "Cost", width: 70, minWidth: 60, maxWidth: 100,
+                InsightsTableColumn(id: "cost", title: "Cost", width: 70, minWidth: 60, maxWidth: 100,
                                   alignment: .right, content: .text { $0.costFormatted }),
-                ReportTableColumn(id: "spent", title: "Spent", width: 70, minWidth: 60, maxWidth: 100,
+                InsightsTableColumn(id: "spent", title: "Spent", width: 70, minWidth: 60, maxWidth: 100,
                                   alignment: .right, content: .text { $0.amountSpentFormatted }),
-                ReportTableColumn(id: "purchaseDate", title: "Date of Purchase", width: 140, minWidth: 120,
+                InsightsTableColumn(id: "purchaseDate", title: "Date of Purchase", width: 140, minWidth: 120,
                                   maxWidth: 180, alignment: .right, sortKey: "purchaseDate",
                                   content: .text { $0.purchaseDateFormatted }),
-                ReportTableColumn(id: "studio", title: "Studio", width: 120, minWidth: 80, maxWidth: 160,
+                InsightsTableColumn(id: "studio", title: "Studio", width: 120, minWidth: 80, maxWidth: 160,
                                   sortKey: "studio", content: .text { $0.studio }),
-                ReportTableColumn(id: "condition", title: "Condition", width: 70, minWidth: 60, maxWidth: 120,
+                InsightsTableColumn(id: "condition", title: "Condition", width: 70, minWidth: 60, maxWidth: 120,
                                   alignment: .center, sortKey: "condition", content: .text { $0.condition }),
-                ReportTableColumn(id: "notes", title: "Notes", width: 200, minWidth: 140,
+                InsightsTableColumn(id: "notes", title: "Notes", width: 200, minWidth: 140,
                                   maxWidth: .greatestFiniteMagnitude, sortKey: "notes",
                                   content: .text { $0.notes })
             ],
@@ -49,11 +49,11 @@ struct CostTrackerView: View {
     }
 
     /// Mount path. If the category loaded earlier this launch, the cached rows show at once with no library work. The fresh scan
-    /// then runs two run-loop cycles later, after the Picker's fade (see ReportsState.selectCategory). On the first visit the scan runs
+    /// then runs two run-loop cycles later, after the Picker's fade (see InsightsState.selectCategory). On the first visit the scan runs
     /// synchronously, to avoid a visible "No Data" flash.
     private func seedThenReloadPurchasedReleases() {
-        if ReportsState.shared.hasLoadedData(for: .costTracker) {
-            releases = ReportsState.shared.cachedReleases(for: .costTracker)
+        if InsightsState.shared.hasLoadedData(for: .costTracker) {
+            releases = InsightsState.shared.cachedReleases(for: .costTracker)
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
                     reconcilePurchasedReleases()
@@ -95,10 +95,10 @@ struct CostTrackerView: View {
 
     private func applyPurchasedReleases(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
-        /// Push the result to ReportsState directly. The onChange(of: releases) handler does not fire when the result equals the current value,
+        /// Push the result to InsightsState directly. The onChange(of: releases) handler does not fire when the result equals the current value,
         /// such as [] on a first load with no qualifying data. Without this call, the category would stay unmarked as loaded and the scan
         /// would run in the mount frame on every visit. updateData is idempotent, so a duplicate call from onChange is harmless.
-        ReportsState.shared.updateData(loadedReleases, for: .costTracker)
+        InsightsState.shared.updateData(loadedReleases, for: .costTracker)
     }
 }
 
@@ -111,26 +111,26 @@ struct PriceTrackerView: View {
     @State private var loadGeneration = 0
     
     var body: some View {
-        ReportsReleaseTableView(
+        InsightsReleaseTableView(
             category: .priceTracker,
             releases: releases,
             emptyStateConfig: EmptyStateConfig(
-                glyph: ReportsCategory.priceTracker.glyph,
+                glyph: InsightsCategory.priceTracker.glyph,
                 noFilmsMessage: "Add films to your library to track prices.",
                 noDataMessage: "Add unpurchased releases with lowest price information to track deals."
             ),
             columns: [
-                ReportTableColumn(id: "title", title: "Title", width: 180, minWidth: 140,
+                InsightsTableColumn(id: "title", title: "Title", width: 180, minWidth: 140,
                                   maxWidth: .greatestFiniteMagnitude, sortKey: "filmTitle",
                                   content: .text { $0.filmTitle }),
-                ReportTableColumn(id: "lowestPrice", title: "Lowest Price", width: 100, minWidth: 80,
+                InsightsTableColumn(id: "lowestPrice", title: "Lowest Price", width: 100, minWidth: 80,
                                   maxWidth: 120, alignment: .right, content: .text { $0.lowestPriceFormatted }),
-                ReportTableColumn(id: "lowestPriceDate", title: "Date of Lowest Price", width: 140,
+                InsightsTableColumn(id: "lowestPriceDate", title: "Date of Lowest Price", width: 140,
                                   minWidth: 120, maxWidth: 180, alignment: .right, sortKey: "lowestPriceDate",
                                   content: .text { $0.lowestPriceDateFormatted }),
-                ReportTableColumn(id: "studio", title: "Studio", width: 120, minWidth: 80, maxWidth: 160,
+                InsightsTableColumn(id: "studio", title: "Studio", width: 120, minWidth: 80, maxWidth: 160,
                                   sortKey: "studio", content: .text { $0.studio }),
-                ReportTableColumn(id: "notes", title: "Notes", width: 200, minWidth: 140,
+                InsightsTableColumn(id: "notes", title: "Notes", width: 200, minWidth: 140,
                                   maxWidth: .greatestFiniteMagnitude, sortKey: "notes",
                                   content: .text { $0.notes })
             ],
@@ -142,8 +142,8 @@ struct PriceTrackerView: View {
 
     /// Mount path: cache-seeded, with a deferred reconciling scan. See CostTrackerView.seedThenReloadPurchasedReleases.
     private func seedThenReloadPriceTrackerData() {
-        if ReportsState.shared.hasLoadedData(for: .priceTracker) {
-            releases = ReportsState.shared.cachedReleases(for: .priceTracker)
+        if InsightsState.shared.hasLoadedData(for: .priceTracker) {
+            releases = InsightsState.shared.cachedReleases(for: .priceTracker)
             DispatchQueue.main.async {
                 DispatchQueue.main.async {
                     reconcilePriceTrackerData()
@@ -183,22 +183,22 @@ struct PriceTrackerView: View {
     private func applyPriceTrackerData(_ loadedReleases: [ReleaseData]) {
         releases = loadedReleases
         /// See CostTrackerView.loadPurchasedReleases for why this direct push is needed.
-        ReportsState.shared.updateData(loadedReleases, for: .priceTracker)
+        InsightsState.shared.updateData(loadedReleases, for: .priceTracker)
     }
 }
 
-// MARK: - Reports Release Table View
+// MARK: - Insights Release Table View
 
-struct ReportsReleaseTableView: View, Loggable {
-    nonisolated static var logTag: String { "[ReportsView]" }
+struct InsightsReleaseTableView: View, Loggable {
+    nonisolated static var logTag: String { "[InsightsView]" }
 
     @Environment(DataCoordinator.self) private var dataCoordinator
     @Environment(SelectionState.self) private var selectionState
 
-    let category: ReportsCategory
+    let category: InsightsCategory
     let releases: [ReleaseData]
     let emptyStateConfig: EmptyStateConfig
-    let columns: [ReportTableColumn<ReleaseData>]
+    let columns: [InsightsTableColumn<ReleaseData>]
     let defaultSortOrder: [KeyPathComparator<ReleaseData>]
     let onLoad: () -> Void
     let onDataChange: () -> Void
@@ -213,13 +213,13 @@ struct ReportsReleaseTableView: View, Loggable {
     /// True while a coalesced film-event reload is waiting for the next run-loop turn (see `scheduleDataChange`).
     @State private var isReloadScheduled = false
 
-    /// No row windowing. ReportTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
+    /// No row windowing. InsightsTable builds only the rows on screen, so the full sorted set costs about what the first screen does.
 
     init(
-        category: ReportsCategory,
+        category: InsightsCategory,
         releases: [ReleaseData],
         emptyStateConfig: EmptyStateConfig,
-        columns: [ReportTableColumn<ReleaseData>],
+        columns: [InsightsTableColumn<ReleaseData>],
         defaultSortOrder: [KeyPathComparator<ReleaseData>],
         onLoad: @escaping () -> Void,
         onDataChange: @escaping () -> Void
@@ -235,12 +235,12 @@ struct ReportsReleaseTableView: View, Loggable {
     }
     
     var body: some View {
-        ReportsEmptyStateWrapper(
+        InsightsEmptyStateWrapper(
             totalFilmCount: dataCoordinator.totalFilmCount,
             isEmpty: releases.isEmpty,
             config: emptyStateConfig
         ) {
-            ReportTable(rows: sortedReleases, columns: columns, selection: $selection,
+            InsightsTable(rows: sortedReleases, columns: columns, selection: $selection,
                         rowHeight: 24,
                         sort: ReleaseData.headerSort(for: sortOrder),
                         onSort: { sortOrder = ReleaseData.comparators(forHeaderSort: $0) },
@@ -250,8 +250,8 @@ struct ReportsReleaseTableView: View, Loggable {
                 handleSelectionChange(newSelection)
             }
             .onChange(of: sortOrder) { _, newSortOrder in
-                /// Update ReportsState with current sort order for this category.
-                ReportsState.shared.updateSortOrder(newSortOrder, for: category)
+                /// Update InsightsState with current sort order for this category.
+                InsightsState.shared.updateSortOrder(newSortOrder, for: category)
                 /// Recompute the memoized sort when the sort order changes.
                 recomputeSort(releases, using: newSortOrder)
             }
@@ -260,17 +260,17 @@ struct ReportsReleaseTableView: View, Loggable {
         .onAppear {
             /// Restore the sort order from the last visit, so the column sort survives tab switches. The mount-path cache was sorted under
             /// that order, so a default order here would force a full re-sort in the mount frame.
-            if let saved = ReportsState.shared.savedSortOrder(for: category) {
+            if let saved = InsightsState.shared.savedSortOrder(for: category) {
                 sortOrder = saved
             }
             onLoad()
-            ReportsState.shared.updateSortOrder(sortOrder, for: category)
+            InsightsState.shared.updateSortOrder(sortOrder, for: category)
         }
         .onChange(of: releases) { _, newReleases in
             /// Recompute the memoized sort when the data changes.
             recomputeSort(newReleases, using: sortOrder)
-            /// Update ReportsState with current data for export.
-            ReportsState.shared.updateData(newReleases, for: category)
+            /// Update InsightsState with current data for export.
+            InsightsState.shared.updateData(newReleases, for: category)
             /// Drop any selected release that is no longer in the loaded rows.
             reconcileSelection(against: newReleases)
         }
@@ -338,25 +338,25 @@ struct ReportsReleaseTableView: View, Loggable {
     
     // MARK: - Custom Sort
 
-    /// Recomputes `sortedReleases` for the inputs, checking the ReportsState cache first. On mount, the data is the cached instance, so the equality
+    /// Recomputes `sortedReleases` for the inputs, checking the InsightsState cache first. On mount, the data is the cached instance, so the equality
     /// check is O(1). The full sort runs only when the data or order changes.
     private func recomputeSort(
         _ items: [ReleaseData],
         using order: [KeyPathComparator<ReleaseData>]
     ) {
-        if let cached = ReportsState.shared.cachedSortedReleases(
+        if let cached = InsightsState.shared.cachedSortedReleases(
             for: category, data: items, sortOrder: order) {
             sortedReleases = cached
             return
         }
         let sorted = ReleaseData.sorted(items, using: order)
         sortedReleases = sorted
-        ReportsState.shared.updateSortedReleases(
+        InsightsState.shared.updateSortedReleases(
             sorted, for: category, data: items, sortOrder: order)
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
-        ReportsState.shared.selectedReleaseRowIDs = newSelection
+        InsightsState.shared.selectedReleaseRowIDs = newSelection
         /// Handle no selection (cleared)
         if newSelection.isEmpty {
             selectionState.clearImmediate()
@@ -536,28 +536,28 @@ extension ReleaseData {
 
     /// A tracker tab's rows, built and sorted off the main actor for the mount path's reconciling load.
     struct Reconciled {
-        let category: ReportsCategory
+        let category: InsightsCategory
         let rows: [ReleaseData]
         let sorted: [ReleaseData]
         let sortOrder: [KeyPathComparator<ReleaseData>]
 
-        /// Records the sort in ReportsState's cache, so the table finds it there. Called only when the rows apply, so a dropped result cannot replace a newer entry.
+        /// Records the sort in InsightsState's cache, so the table finds it there. Called only when the rows apply, so a dropped result cannot replace a newer entry.
         @MainActor
         func primeSortCache() {
-            ReportsState.shared.updateSortedReleases(sorted, for: category, data: rows, sortOrder: sortOrder)
+            InsightsState.shared.updateSortedReleases(sorted, for: category, data: rows, sortOrder: sortOrder)
         }
     }
 
-    /// The sort uses the order the table will use: the saved order, else the default, as ReportsReleaseTableView.onAppear picks. If the order
+    /// The sort uses the order the table will use: the saved order, else the default, as InsightsReleaseTableView.onAppear picks. If the order
     /// changes before the rows land, the cache misses and the table sorts as usual.
     @MainActor
     static func reconciledRows(
-        for category: ReportsCategory,
+        for category: InsightsCategory,
         filmsMap: [UUID: FilmSnapshot],
         defaultSortOrder: [KeyPathComparator<ReleaseData>],
         build: @escaping @Sendable ([FilmSnapshot]) -> [ReleaseData]
     ) async -> Reconciled {
-        let order = ReportsState.shared.savedSortOrder(for: category) ?? defaultSortOrder
+        let order = InsightsState.shared.savedSortOrder(for: category) ?? defaultSortOrder
         let (rows, sorted) = await Task.detached(priority: .userInitiated) {
             /// Array(values) matches what getAllFilms() returns for this dictionary.
             let rows = build(Array(filmsMap.values))
@@ -570,7 +570,7 @@ extension ReleaseData {
     static let costTrackerDefaultSort: [KeyPathComparator<ReleaseData>] =
         [comparator(forKey: "purchaseDate", order: .reverse)!]
 
-    /// The sortable columns' keys, as `ReportTableColumn.sortKey` names them.
+    /// The sortable columns' keys, as `InsightsTableColumn.sortKey` names them.
     private static let sortKeys = ["filmTitle", "purchaseDate", "lowestPriceDate", "studio", "condition", "notes"]
 
     /// The comparator for a header key. Title sorts by `titleSort`, the gallery's order. The rest sort by their strings under English

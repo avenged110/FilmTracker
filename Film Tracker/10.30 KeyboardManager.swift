@@ -141,7 +141,7 @@ final class KeyboardManager {
         /// from the LeftSidebar lands on the grid and selects item 0 (via seedInitialCursor).
         if modifiers == [] && char == "\t" {
             /// Only apply in gallery views; pass through in all other views so that
-            /// Tab retains its default traversal behavior in Reports, Imports, etc.
+            /// Tab retains its default traversal behavior in Insights, Imports, etc.
             guard let appState = appState,
                   appState.selectedSidebarItem.capabilities.routesTabFocusToGallery else {
                 return false
@@ -277,7 +277,7 @@ final class KeyboardManager {
             return true
         }
         
-        /// Opt+Cmd+1-9 - In-view tab switching for the Unwatched view, Recents, Reports, Imports,
+        /// Opt+Cmd+1-9 - In-view tab switching for the Unwatched view, Recents, Insights, Imports,
         /// the Film Queue, or a smart-list family. Nine digits cover the largest tab group.
         /// Outside those views the event passes through.
         if modifiers == [.option, .command],
@@ -300,12 +300,14 @@ final class KeyboardManager {
         /// is the one those items take, so a shortcut does what its item does and only when
         /// the item is enabled.
         ///
-        /// Consumed whenever a FilmSheet is open, available or not. Cmd+N and Opt+Cmd+N are
-        /// also File menu shortcuts (Create New List…, Duplicate List), which the sheet disables,
-        /// so none of these may fall through to act behind it.
+        /// Consumed whenever a FilmSheet is open, available or not. Cmd+N is also
+        /// a menu shortcut (File > Create New List…) and Cmd+D one of the menus' (Duplicate
+        /// List and others), which the sheet disables, so none of these may fall through to
+        /// act behind it.
         ///
         /// Outside a FilmSheet nothing matches here. Cmd+N and Opt+Cmd+N continue to their own
-        /// branches below, and the other two are not bound anywhere else.
+        /// branches below, Cmd+D to the menus (Duplicate List, Pin/Unpin Tag, Duplicate Saved Search…), and
+        /// Shift+Opt+Cmd+N is bound nowhere else.
         ///
         /// ORDERING: evaluated BEFORE textInputActive. After interacting with pickers,
         /// checkboxes or text fields, the first responder can stay a view that
@@ -661,9 +663,9 @@ final class KeyboardManager {
         case .libraryItem(.recents):
             let state = RecentsState.shared
             return step(RecentsCategory.allCases, state.selectedCategory) { state.selectCategory($0) }
-        case .libraryItem(.reports):
-            let state = ReportsState.shared
-            return step(ReportsCategory.allCases, state.selectedCategory) { state.selectCategory($0) }
+        case .libraryItem(.insights):
+            let state = InsightsState.shared
+            return step(InsightsCategory.allCases, state.selectedCategory) { state.selectCategory($0) }
         case .libraryItem(.imports):
             let state = ImportsState.shared
             return step([.metadata, .ratings], state.selectedCategory) { state.selectCategory($0) }
@@ -710,7 +712,7 @@ final class KeyboardManager {
     }
     
     /// Handle Shift+Cmd+N - Create New List from Selection. Matches AddToListMenuItems;
-    /// Opt+Cmd+N is a different shortcut (Duplicate List, in MenuBar's File menu).
+    /// Opt+Cmd+N is unbound outside a FilmSheet.
     private func handleCreateNewListFromSelection() -> Bool {
         guard let appState = appState,
               appState.sheetCoordinator.activeSheet == nil else {
@@ -729,7 +731,7 @@ final class KeyboardManager {
     }
     
     /// Handle Opt+Cmd+1-9 - Switch tabs within the currently active multi-tab view.
-    /// Scoped to the Unwatched view, Recents, Reports, Imports, the Film Queue, and the
+    /// Scoped to the Unwatched view, Recents, Insights, Imports, the Film Queue, and the
     /// rotation, purchased, unpurchased, alternate-versions and filtered-library smart-list families.
     /// Returns false if not in one of those views, allowing the caller to decide
     /// whether to consume or pass through the event.
@@ -755,12 +757,12 @@ final class KeyboardManager {
             RecentsState.shared.selectCategory(tabs[tabNumber - 1])
             return true
             
-        case .libraryItem(.reports):
-            /// Tab order (ReportsCategory.allCases): 1=Insights, 2=Purchase Tracker,
+        case .libraryItem(.insights):
+            /// Tab order (InsightsCategory.allCases): 1=Insights, 2=Purchase Tracker,
             ///            3=Price Tracker, 4=Hall of Fame, 5=Release Wishlist
-            let tabs = ReportsCategory.allCases
+            let tabs = InsightsCategory.allCases
             guard tabs.indices.contains(tabNumber - 1) else { return false }
-            ReportsState.shared.selectCategory(tabs[tabNumber - 1])
+            InsightsState.shared.selectCategory(tabs[tabNumber - 1])
             return true
             
         case .libraryItem(.imports):

@@ -2,10 +2,10 @@
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// Assembles the whole-library PDF: a cover page with a linked table of contents, then the
-/// complete-library table, followed by one sheet per ReportsView tab, in a single document.
+/// complete-library table, followed by one sheet per InsightsView tab, in a single document.
 ///
 /// The document is built entirely from the shared PDF stack (PDFCore 85.00 / PDFTableRenderer
-/// 85.10 / PDFReport 85.20). The report sheets are the ones `ReportsPDFExporter`
+/// 85.10 / PDFReport 85.20). The report sheets are the ones `InsightsPDFExporter`
 /// (27.50) builds — this file does not restate a single column of them, it just appends
 /// them.
 ///
@@ -23,7 +23,7 @@ import Foundation
 ///
 /// The first three cases are the document's own per-film sections — the summary table
 /// `LibraryPDFReport` draws, then the two detail sections in `PDFSections` (85.30). The two
-/// after them map 1:1 onto a `ReportsCategory`, so the document's contents and the Export
+/// after them map 1:1 onto a `InsightsCategory`, so the document's contents and the Export
 /// tab's picker stay in step without either side restating the other's list.
 ///
 /// DECLARATION ORDER IS DOCUMENT ORDER: `export` filters `allCases` rather than iterating
@@ -33,27 +33,27 @@ import Foundation
 ///
 /// # What is NOT here
 ///
-/// The cost, price and wishlist tabs of ReportsView have no sheet in this document. `discReleases` reports the
+/// The cost, price and wishlist tabs of InsightsView have no sheet in this document. `discReleases` reports the
 /// same purchase state, cost, amount spent, lowest price and dates per release, beside the disc it belongs to,
-/// so those rows would otherwise appear twice. Their ReportsView tabs are unaffected.
+/// so those rows would otherwise appear twice. Their InsightsView tabs are unaffected.
 enum LibraryPDFSection: String, CaseIterable, Identifiable, Hashable, Sendable {
     case completeLibrary
     case viewingHistory
     case discReleases
     case hallOfFame
-    case dataVisualizations
+    case insights = "dataVisualizations"
 
     var id: String { rawValue }
 
-    /// The ReportsView tab this section is drawn from, or nil for a section this document
+    /// The InsightsView tab this section is drawn from, or nil for a section this document
     /// builds itself.
-    var reportsCategory: ReportsCategory? {
+    var insightsCategory: InsightsCategory? {
         switch self {
         case .completeLibrary:     return nil
         case .viewingHistory:      return nil
         case .discReleases:        return nil
         case .hallOfFame:          return .hallOfFame
-        case .dataVisualizations:  return .dataVisualizations
+        case .insights:  return .insights
         }
     }
 
@@ -62,7 +62,7 @@ enum LibraryPDFSection: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .completeLibrary: return "Complete Library"
         case .viewingHistory:  return ViewingHistoryPDFReport.sectionTitle
         case .discReleases:    return DiscReleasesPDFReport.sectionTitle
-        default:               return reportsCategory?.displayName ?? ""
+        default:               return insightsCategory?.displayName ?? ""
         }
     }
 
@@ -210,13 +210,13 @@ enum LibraryPDFExporter: Loggable {
                             geometry: layout.geometry, contentsTitle: section.displayName)
                 added += 1
             default:
-                /// Every remaining case names a ReportsView tab, handled in one arm because the category is derived from
+                /// Every remaining case names a InsightsView tab, handled in one arm because the category is derived from
                 /// the case rather than given by it.
                 ///
                 /// A tab with nothing to report is skipped rather than rendered as an empty table.
-                /// `ReportsPDFExporter.sheet(for:)` returns nil for exactly that case.
-                if let category = section.reportsCategory,
-                   let sheet = ReportsPDFExporter.sheet(
+                /// `InsightsPDFExporter.sheet(for:)` returns nil for exactly that case.
+                if let category = section.insightsCategory,
+                   let sheet = InsightsPDFExporter.sheet(
                     for: exportData(for: category, dataCoordinator: dataCoordinator,
                                     films: films)) {
                     /// The library table's geometry: the report sheets match the table they follow in orientation and
@@ -265,7 +265,7 @@ enum LibraryPDFExporter: Loggable {
 
     /// Rebuilds a tab's export payload from the store.
     ///
-    /// Deliberately NOT read from `ReportsState.shared`: that cache is only populated once
+    /// Deliberately NOT read from `InsightsState.shared`: that cache is only populated once
     /// the user has visited the tab in question, so sourcing from it would silently drop
     /// whole sheets out of the document depending on where the user had browsed this
     /// session.
@@ -277,33 +277,33 @@ enum LibraryPDFExporter: Loggable {
     /// Driving the real builder is the point: a harness that restated the ordering rule
     /// would pass against an exporter that had stopped applying it.
     static func exportData(
-        for category: ReportsCategory,
+        for category: InsightsCategory,
         dataCoordinator: DataCoordinator,
         films: [FilmSnapshot]
-    ) -> ReportsExportData {
+    ) -> InsightsExportData {
         switch category {
         /// The cost, price and wishlist tabs have no section here — see the note on
         /// `LibraryPDFSection`. Listed explicitly rather than folded into a `default` so
-        /// that adding a ReportsCategory still fails the build here, which is the
+        /// that adding a InsightsCategory still fails the build here, which is the
         /// check that kept this switch and the picker in step in the first place.
         case .costTracker, .priceTracker, .releaseWishlist:
-            return ReportsExportData(category: category,
+            return InsightsExportData(category: category,
                                      hallOfFameFilms: nil)
 
         case .hallOfFame:
-            return ReportsExportData(
+            return InsightsExportData(
                 category: category,
                 hallOfFameFilms: HallOfFameFilm.rows(
                     films: dataCoordinator.getHallOfFameFilms()))
 
-        case .dataVisualizations:
+        case .insights:
             /// The tab's cached pass lends its parsed viewing histories, when there is one,
             /// so only films whose history changed since are parsed again.
-            return ReportsExportData(
+            return InsightsExportData(
                 category: category, hallOfFameFilms: nil,
                 visualizations: DVDataset(
                     films: films,
-                    previousRecords: ReportsState.shared.cachedVisualizations?.viewingRecords ?? [],
+                    previousRecords: InsightsState.shared.cachedVisualizations?.viewingRecords ?? [],
                     showInfoComplete: Preferences.showInfoComplete))
         }
     }

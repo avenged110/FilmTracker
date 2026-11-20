@@ -306,8 +306,10 @@ struct MainView: View, Loggable {
         case .smartList where !Preferences.smartLists:
             /// Smart lists were turned off while the search was open.
             return .libraryItem(.allFilms)
-        case .tag where Preferences.showTagsInSidebar == .hidden:
-            /// The Tags section was hidden while the search was open.
+        case .tag(let tag) where !TagActions.canStayOpen(tag, in: dataCoordinator):
+            /// The tag has no row to return to: Most-Used Tags was hidden while the search was
+            /// open, or the tag left the library (deleted, renamed, or its last film lost it).
+            /// A pinned tag keeps its row either way.
             return .libraryItem(.allFilms)
         default:
             return previousSidebarItem
@@ -517,7 +519,7 @@ private struct MainContentSwitcher: View {
             /// RightSidebar, discarding all of its @State. RightSidebar resolves its content only
             /// on selection change, not on mount, so a selection that survived the flip would
             /// show as "Nothing Selected". Both flipping paths clear the selection first: a view
-            /// switch (AppState.navigate(to:)) and a Reports category change (ReportsView). Any future
+            /// switch (AppState.navigate(to:)) and a Insights category change (InsightsView). Any future
             /// view that toggles this flag must clear the selection too, or add a mount-time resolve.
             if showsChrome {
                 Divider()
@@ -539,7 +541,7 @@ private struct MainContentSwitcher: View {
 
     /// Returns the appropriate content view with stable identity.
     ///
-    /// Only Reports and Imports render something other than the gallery. The other eight share one branch,
+    /// Only Insights and Imports render something other than the gallery. The other eight share one branch,
     /// and so one mounted `GalleryView`; that branch must list exactly the items GalleryReuse.isSharedHostItem
     /// accepts. The switch has no `default`, so a new SidebarItem case is a compile error until it is placed.
     ///
@@ -548,8 +550,8 @@ private struct MainContentSwitcher: View {
     @ViewBuilder
     private func contentView(for item: SidebarItem, statusBarHeight: CGFloat) -> some View {
         switch item {
-        case .libraryItem(.reports):
-            ReportsView()
+        case .libraryItem(.insights):
+            InsightsView()
                 .id("reports")
         case .libraryItem(.imports):
             ImportsView()
@@ -617,7 +619,7 @@ private struct NavigationTitleModifier: ViewModifier {
         case .savedSearch(let id):
             return SavedSearchStore.shared.search(id)?.name ?? "Saved Search"
         case .tag(let tag):
-            return tag.name
+            return truncateListName(tag.name)
         }
     }
 }
@@ -759,7 +761,7 @@ private struct SearchFieldSuggestions: View {
             } label: {
                 /// One Text, so the prefix and value share a single line that truncates as a
                 /// whole at the menu's width.
-                Text("\(Text(suggestion.prefix).foregroundStyle(.secondary))\(suggestion.value)")
+                Text("\(Text(suggestion.prefix).foregroundStyle(.secondary))\(suggestion.field == .tags ? truncateListName(suggestion.value) : suggestion.value)")
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -25,6 +25,8 @@ enum SheetContent {
     case upNextSlot
     /// The saved-search builder: create, edit or duplicate a saved search.
     case savedSearch(SavedSearchSheet.Mode)
+    /// Renaming a tag, or every tag in the library (TagSheet).
+    case tags(TagSheet.Mode)
 }
 
 /// Unified sheet wrapper with stable ID
@@ -45,6 +47,7 @@ struct AppSheet: Identifiable, Equatable {
         case .listManager: return "List Manager"
         case .upNextSlot: return "Up Next Slot"
         case .savedSearch: return "Saved Search"
+        case .tags: return "Tag Sheet"
         }
     }
     
@@ -80,6 +83,10 @@ struct AppSheet: Identifiable, Equatable {
 
     static func savedSearch(_ mode: SavedSearchSheet.Mode) -> AppSheet {
         AppSheet(id: "savedSearch", content: .savedSearch(mode))
+    }
+
+    static func tags(_ mode: TagSheet.Mode) -> AppSheet {
+        AppSheet(id: "tagSheet", content: .tags(mode))
     }
 
     static var upNextSlot: AppSheet {
@@ -288,6 +295,11 @@ struct SheetHostView: View, Loggable {
             SavedSearchSheet(mode: mode, coordinator: dataCoordinator)
                 .environment(dataCoordinator)
                 .environment(sheetCoordinator)
+
+        case .tags(let mode):
+            TagSheet(mode: mode)
+                .environment(dataCoordinator)
+                .environment(sheetCoordinator)
         }
     }
     
@@ -326,6 +338,8 @@ struct SheetHostView: View, Loggable {
             present(.upNextSlot)
         case .showSavedSearchSheet(let mode):
             present(.savedSearch(mode))
+        case .showTagSheet(let mode):
+            present(.tags(mode))
         /// Other commands handled elsewhere
         default:
             break
@@ -604,6 +618,22 @@ extension View {
             .focusEffectDisabled()
             .overlay(Divider(), alignment: .bottom)
             .zIndex(1)
+    }
+}
+
+extension View {
+    /// A full-size sheet's frame: the window background, Preferences.sheetSize square.
+    func sheetFrame() -> some View {
+        self
+            .background(Color(nsColor: .windowBackgroundColor))
+            .frame(width: Preferences.sheetSize, height: Preferences.sheetSize)
+    }
+
+    /// A sheet's bottom bar (Close, Cancel, the confirm action): its margins.
+    func sheetBottomBar() -> some View {
+        self
+            .padding(.vertical, 12)
+            .padding(.horizontal, 20)
     }
 }
 

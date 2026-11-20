@@ -7,28 +7,30 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */; };
-		5A5E5E000000000000000003 /* 50.31 SSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 50.31 SSStore.swift */; };
-		5A5E5E000000000000000005 /* 50.32 SSSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 50.32 SSSheet.swift */; };
-		5A5E5E000000000000000007 /* 23.73 SSControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000006 /* 23.73 SSControls.swift */; };
+		5A5E5E000000000000000001 /* 51.00 SavedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000000 /* 51.00 SavedSearch.swift */; };
+		5A5E5E000000000000000003 /* 51.01 SSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 51.01 SSStore.swift */; };
+		5A5E5E000000000000000005 /* 51.10 SSSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 51.10 SSSheet.swift */; };
+		5A5E5E000000000000000007 /* 51.20 SSControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000006 /* 51.20 SSControls.swift */; };
 		5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */; };
-		5A5E5E00000000000000000B /* 50.33 SSRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E00000000000000000A /* 50.33 SSRules.swift */; };
+		5A5E5E00000000000000000B /* 51.11 SSRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E00000000000000000A /* 51.11 SSRules.swift */; };
+		7A6E5E000000000000000001 /* 54.00 TagSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E5E000000000000000000 /* 54.00 TagSheet.swift */; };
+		7A6E5E000000000000000003 /* 54.10 TagManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E5E000000000000000002 /* 54.10 TagManager.swift */; };
 		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
 		B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */; };
 		B0E0ED0000000000000000F2 /* 99.58 DHReleaseDuplicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */; };
 		B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */; };
-		B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */; };
-		B0E0ED000000000000000103 /* 52.10 MFSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 52.10 MFSView.swift */; };
-		B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */; };
+		B0E0ED000000000000000102 /* 53.00 MultiFilmSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000002 /* 53.00 MultiFilmSheet.swift */; };
+		B0E0ED000000000000000103 /* 53.10 MFSView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000003 /* 53.10 MFSView.swift */; };
+		B0E0ED000000000000000104 /* 53.20 BulkFilmEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED000000000000000004 /* 53.20 BulkFilmEdit.swift */; };
 		C0DA7A000000000000000002 /* 11.05 LibraryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */; };
 		CE0EAE952ED44979005C6F4D /* 23.71 SortFilterMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE942ED44979005C6F4D /* 23.71 SortFilterMenu.swift */; };
 		CE0EAE972ED44979005C6F4D /* 23.72 SelectionMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED44979005C6F4D /* 23.72 SelectionMenu.swift */; };
 		CE0EAE972ED5103C005C6F4D /* 23.60 ViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */; };
 		CE0EAE9D2ED66B11005C6F4D /* 11.20 MemoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE9C2ED66B11005C6F4D /* 11.20 MemoryStore.swift */; };
 		CE0EAE9F2ED85F37005C6F4D /* 70.00 LibraryManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */; };
-		CE0EAEA52EDDA206005C6F4D /* 51.00 DuplicateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */; };
+		CE0EAEA52EDDA206005C6F4D /* 52.00 DuplicateSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAEA42EDDA206005C6F4D /* 52.00 DuplicateSheet.swift */; };
 		CE0EAEA92EDFB31D005C6F4D /* 10.20 AlertHostView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE0EAEA82EDFB31D005C6F4D /* 10.20 AlertHostView.swift */; };
 		CE25A1002F00000100000002 /* 25.10 RecentsSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE25A1002F00000100000001 /* 25.10 RecentsSummary.swift */; };
 		CE2A1F392E96277600EB1C02 /* 61.00 FilmObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */; };
@@ -70,13 +72,13 @@
 		CE2A1FB42E9630FA00EB1C14 /* 99.12 DHPipelines.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2A1FB32E9630FA00EB1C13 /* 99.12 DHPipelines.swift */; };
 		CE2A1FB62E9630FA00EB1C16 /* 99.13 DHBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2A1FB52E9630FA00EB1C15 /* 99.13 DHBackup.swift */; };
 		CE2A1FC12E9630FA00EB1D12 /* 99.20 DHViewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE2A1FC02E9630FA00EB1D11 /* 99.20 DHViewState.swift */; };
-		CE3B0B0D2FD0E47700E515FF /* 27.01 ReportsHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3B0B0C2FD0E47700E515FF /* 27.01 ReportsHelpers.swift */; };
-		CE3B0B0F2FD15CEC00E515FF /* 27.30 RPTabWishlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3B0B0E2FD15CEC00E515FF /* 27.30 RPTabWishlist.swift */; };
+		CE3B0B0D2FD0E47700E515FF /* 27.01 InsightsHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3B0B0C2FD0E47700E515FF /* 27.01 InsightsHelpers.swift */; };
+		CE3B0B0F2FD15CEC00E515FF /* 27.30 INTabWishlist.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE3B0B0E2FD15CEC00E515FF /* 27.30 INTabWishlist.swift */; };
 		CE40BABD2EC340D9009A4ECA /* 50.00 SearchController.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */; };
 		CE40BAC32EC6AC3B009A4ECA /* 94.00 CustomTabs.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BAC22EC6AC3B009A4ECA /* 94.00 CustomTabs.swift */; };
 		CE40BAC52EC6FDEE009A4ECA /* Credits.html in Resources */ = {isa = PBXBuildFile; fileRef = CE40BAC42EC6FDEE009A4ECA /* Credits.html */; };
 		CE40BAC92EC804B9009A4ECA /* 25.00 RecentsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BAC82EC804B9009A4ECA /* 25.00 RecentsView.swift */; };
-		CE40BACD2EC804CE009A4ECA /* 27.00 ReportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BACC2EC804CE009A4ECA /* 27.00 ReportsView.swift */; };
+		CE40BACD2EC804CE009A4ECA /* 27.00 InsightsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BACC2EC804CE009A4ECA /* 27.00 InsightsView.swift */; };
 		CE40BACF2EC804D6009A4ECA /* 28.00 ImportsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BACE2EC804D6009A4ECA /* 28.00 ImportsView.swift */; };
 		CE40BAD12EC88925009A4ECA /* 11.10 DataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BAD02EC88925009A4ECA /* 11.10 DataManager.swift */; };
 		CE40BAD32EC88BC7009A4ECA /* 11.00 DataCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE40BAD22EC88BC7009A4ECA /* 11.00 DataCoordinator.swift */; };
@@ -94,9 +96,9 @@
 		CE42AD842EFD42B60096D62D /* 20.20 DragDropSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD832EFD42B60096D62D /* 20.20 DragDropSupport.swift */; };
 		CE42AD8C2F071E310096D62D /* 23.10 GalleryViewUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8B2F071E310096D62D /* 23.10 GalleryViewUI.swift */; };
 		CE42AD8E2F0B1E0F0096D62D /* 93.00 CustomTable.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */; };
-		CE42AD902F0DBB960096D62D /* 27.50 ReportExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8F2F0DBB960096D62D /* 27.50 ReportExporter.swift */; };
+		CE42AD902F0DBB960096D62D /* 27.50 InsightsExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD8F2F0DBB960096D62D /* 27.50 InsightsExporter.swift */; };
 		CE42AD922F1090430096D62D /* 71.00 SmartLists.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */; };
-		CE42AD962F1648D10096D62D /* 27.10 ReportTrackers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD952F1648D10096D62D /* 27.10 ReportTrackers.swift */; };
+		CE42AD962F1648D10096D62D /* 27.10 InsightsTrackers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD952F1648D10096D62D /* 27.10 InsightsTrackers.swift */; };
 		CE42AD9A2F1CF34C0096D62D /* 66.00 SettingsObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */; };
 		CE42AD9C2F1CF3990096D62D /* 72.00 SettingsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE42AD9B2F1CF3990096D62D /* 72.00 SettingsManager.swift */; };
 		CE4E6B172F493B8D00D71DE7 /* 60.00 Snapshots.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */; };
@@ -109,8 +111,8 @@
 		CE60CD8D2EC092DD00D20774 /* 63.00 ReleaseObj.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE60CD8C2EC092DD00D20774 /* 63.00 ReleaseObj.swift */; };
 		CE60CD912EC09CBB00D20774 /* 33.00 FSTabReleases.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE60CD902EC09CBB00D20774 /* 33.00 FSTabReleases.swift */; };
 		CE60CD932EC0A49500D20774 /* 84.00 DBRestorer.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE60CD922EC0A49500D20774 /* 84.00 DBRestorer.swift */; };
-		CE6242552F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6242542F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift */; };
-		CE6242572F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6242562F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift */; };
+		CE6242552F33E47D001DBD2D /* 27.20 INTabHallOfFame.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6242542F33E47D001DBD2D /* 27.20 INTabHallOfFame.swift */; };
+		CE6242572F33E4DF001DBD2D /* 27.40 INTabInsights.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6242562F33E4DF001DBD2D /* 27.40 INTabInsights.swift */; };
 		CE79C2F02FCE628900162C62 /* 30.20 FSControlHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE79C2EF2FCE628900162C62 /* 30.20 FSControlHelpers.swift */; };
 		CE79C2F22FCF5A2100162C62 /* 23.30 GalleryListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE79C2F12FCF5A2100162C62 /* 23.30 GalleryListView.swift */; };
 		CE7A41000000000000000002 /* 27.41 DVLibraryStats.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE7A41000000000000000001 /* 27.41 DVLibraryStats.swift */; };
@@ -169,18 +171,20 @@
 
 /* Begin PBXFileReference section */
 		2317EABA733A9F7CD5E801C9 /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
-		5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.30 SavedSearch.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000002 /* 50.31 SSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.31 SSStore.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000004 /* 50.32 SSSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.32 SSSheet.swift"; sourceTree = "<group>"; };
-		5A5E5E000000000000000006 /* 23.73 SSControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.73 SSControls.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000000 /* 51.00 SavedSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.00 SavedSearch.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000002 /* 51.01 SSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.01 SSStore.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000004 /* 51.10 SSSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.10 SSSheet.swift"; sourceTree = "<group>"; };
+		5A5E5E000000000000000006 /* 51.20 SSControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.20 SSControls.swift"; sourceTree = "<group>"; };
 		5A5E5E000000000000000008 /* 67.00 SavedSearchObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "67.00 SavedSearchObj.swift"; sourceTree = "<group>"; };
-		5A5E5E00000000000000000A /* 50.33 SSRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.33 SSRules.swift"; sourceTree = "<group>"; };
+		5A5E5E00000000000000000A /* 51.11 SSRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.11 SSRules.swift"; sourceTree = "<group>"; };
+		7A6E5E000000000000000000 /* 54.00 TagSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "54.00 TagSheet.swift"; sourceTree = "<group>"; };
+		7A6E5E000000000000000002 /* 54.10 TagManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "54.10 TagManager.swift"; sourceTree = "<group>"; };
 		83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.10 UpNextSlots.swift"; sourceTree = "<group>"; };
 		A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.10 ReleaseNotifications.swift"; sourceTree = "<group>"; };
 		B0E0ED000000000000000001 /* 30.25 FSSharedFields.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "30.25 FSSharedFields.swift"; sourceTree = "<group>"; };
-		B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.00 MultiFilmSheet.swift"; sourceTree = "<group>"; };
-		B0E0ED000000000000000003 /* 52.10 MFSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.10 MFSView.swift"; sourceTree = "<group>"; };
-		B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.20 BulkFilmEdit.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000002 /* 53.00 MultiFilmSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "53.00 MultiFilmSheet.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000003 /* 53.10 MFSView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "53.10 MFSView.swift"; sourceTree = "<group>"; };
+		B0E0ED000000000000000004 /* 53.20 BulkFilmEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "53.20 BulkFilmEdit.swift"; sourceTree = "<group>"; };
 		B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.57 DHBulkEdit.swift"; sourceTree = "<group>"; };
 		B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.58 DHReleaseDuplicate.swift"; sourceTree = "<group>"; };
 		C0DA7A000000000000000001 /* 11.05 LibraryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.05 LibraryStore.swift"; sourceTree = "<group>"; };
@@ -190,7 +194,7 @@
 		CE0EAE962ED5103C005C6F4D /* 23.60 ViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.60 ViewState.swift"; sourceTree = "<group>"; };
 		CE0EAE9C2ED66B11005C6F4D /* 11.20 MemoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.20 MemoryStore.swift"; sourceTree = "<group>"; };
 		CE0EAE9E2ED85F37005C6F4D /* 70.00 LibraryManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "70.00 LibraryManager.swift"; sourceTree = "<group>"; };
-		CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.00 DuplicateSheet.swift"; sourceTree = "<group>"; };
+		CE0EAEA42EDDA206005C6F4D /* 52.00 DuplicateSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "52.00 DuplicateSheet.swift"; sourceTree = "<group>"; };
 		CE0EAEA82EDFB31D005C6F4D /* 10.20 AlertHostView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "10.20 AlertHostView.swift"; sourceTree = "<group>"; };
 		CE25A1002F00000100000001 /* 25.10 RecentsSummary.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "25.10 RecentsSummary.swift"; sourceTree = "<group>"; };
 		CE2A1F312E96277600EB1C02 /* Film Tracker.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Film Tracker.app"; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -234,14 +238,14 @@
 		CE2A1FB32E9630FA00EB1C13 /* 99.12 DHPipelines.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.12 DHPipelines.swift"; sourceTree = "<group>"; };
 		CE2A1FB52E9630FA00EB1C15 /* 99.13 DHBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.13 DHBackup.swift"; sourceTree = "<group>"; };
 		CE2A1FC02E9630FA00EB1D11 /* 99.20 DHViewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.20 DHViewState.swift"; sourceTree = "<group>"; };
-		CE3B0B0C2FD0E47700E515FF /* 27.01 ReportsHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.01 ReportsHelpers.swift"; sourceTree = "<group>"; };
-		CE3B0B0E2FD15CEC00E515FF /* 27.30 RPTabWishlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.30 RPTabWishlist.swift"; sourceTree = "<group>"; };
+		CE3B0B0C2FD0E47700E515FF /* 27.01 InsightsHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.01 InsightsHelpers.swift"; sourceTree = "<group>"; };
+		CE3B0B0E2FD15CEC00E515FF /* 27.30 INTabWishlist.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.30 INTabWishlist.swift"; sourceTree = "<group>"; };
 		CE40BABB2EC1E51B009A4ECA /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = SOURCE_ROOT; };
 		CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "50.00 SearchController.swift"; sourceTree = "<group>"; };
 		CE40BAC22EC6AC3B009A4ECA /* 94.00 CustomTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "94.00 CustomTabs.swift"; sourceTree = "<group>"; };
 		CE40BAC42EC6FDEE009A4ECA /* Credits.html */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.html; path = Credits.html; sourceTree = "<group>"; };
 		CE40BAC82EC804B9009A4ECA /* 25.00 RecentsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "25.00 RecentsView.swift"; sourceTree = "<group>"; };
-		CE40BACC2EC804CE009A4ECA /* 27.00 ReportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.00 ReportsView.swift"; sourceTree = "<group>"; };
+		CE40BACC2EC804CE009A4ECA /* 27.00 InsightsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.00 InsightsView.swift"; sourceTree = "<group>"; };
 		CE40BACE2EC804D6009A4ECA /* 28.00 ImportsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "28.00 ImportsView.swift"; sourceTree = "<group>"; };
 		CE40BAD02EC88925009A4ECA /* 11.10 DataManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.10 DataManager.swift"; sourceTree = "<group>"; };
 		CE40BAD22EC88BC7009A4ECA /* 11.00 DataCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "11.00 DataCoordinator.swift"; sourceTree = "<group>"; };
@@ -259,9 +263,9 @@
 		CE42AD832EFD42B60096D62D /* 20.20 DragDropSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "20.20 DragDropSupport.swift"; sourceTree = "<group>"; };
 		CE42AD8B2F071E310096D62D /* 23.10 GalleryViewUI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.10 GalleryViewUI.swift"; sourceTree = "<group>"; };
 		CE42AD8D2F0B1E0F0096D62D /* 93.00 CustomTable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "93.00 CustomTable.swift"; sourceTree = "<group>"; };
-		CE42AD8F2F0DBB960096D62D /* 27.50 ReportExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.50 ReportExporter.swift"; sourceTree = "<group>"; };
+		CE42AD8F2F0DBB960096D62D /* 27.50 InsightsExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.50 InsightsExporter.swift"; sourceTree = "<group>"; };
 		CE42AD912F1090430096D62D /* 71.00 SmartLists.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "71.00 SmartLists.swift"; sourceTree = "<group>"; };
-		CE42AD952F1648D10096D62D /* 27.10 ReportTrackers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.10 ReportTrackers.swift"; sourceTree = "<group>"; };
+		CE42AD952F1648D10096D62D /* 27.10 InsightsTrackers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.10 InsightsTrackers.swift"; sourceTree = "<group>"; };
 		CE42AD992F1CF34C0096D62D /* 66.00 SettingsObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "66.00 SettingsObj.swift"; sourceTree = "<group>"; };
 		CE42AD9B2F1CF3990096D62D /* 72.00 SettingsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "72.00 SettingsManager.swift"; sourceTree = "<group>"; };
 		CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "60.00 Snapshots.swift"; sourceTree = "<group>"; };
@@ -274,8 +278,8 @@
 		CE60CD8C2EC092DD00D20774 /* 63.00 ReleaseObj.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "63.00 ReleaseObj.swift"; sourceTree = "<group>"; };
 		CE60CD902EC09CBB00D20774 /* 33.00 FSTabReleases.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.00 FSTabReleases.swift"; sourceTree = "<group>"; };
 		CE60CD922EC0A49500D20774 /* 84.00 DBRestorer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "84.00 DBRestorer.swift"; sourceTree = "<group>"; };
-		CE6242542F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.20 RPTabHallOfFame.swift"; sourceTree = "<group>"; };
-		CE6242562F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.40 RPTabDataViz.swift"; sourceTree = "<group>"; };
+		CE6242542F33E47D001DBD2D /* 27.20 INTabHallOfFame.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.20 INTabHallOfFame.swift"; sourceTree = "<group>"; };
+		CE6242562F33E4DF001DBD2D /* 27.40 INTabInsights.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.40 INTabInsights.swift"; sourceTree = "<group>"; };
 		CE79C2EF2FCE628900162C62 /* 30.20 FSControlHelpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "30.20 FSControlHelpers.swift"; sourceTree = "<group>"; };
 		CE79C2F12FCF5A2100162C62 /* 23.30 GalleryListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "23.30 GalleryListView.swift"; sourceTree = "<group>"; };
 		CE7A41000000000000000001 /* 27.41 DVLibraryStats.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "27.41 DVLibraryStats.swift"; sourceTree = "<group>"; };
@@ -405,18 +409,18 @@
 				CE40BAC82EC804B9009A4ECA /* 25.00 RecentsView.swift */,
 				CE25A1002F00000100000001 /* 25.10 RecentsSummary.swift */,
 				CEC720B03012D52500A5FE7F /* 26.00 UnwatchedView.swift */,
-				CE40BACC2EC804CE009A4ECA /* 27.00 ReportsView.swift */,
-				CE3B0B0C2FD0E47700E515FF /* 27.01 ReportsHelpers.swift */,
-				CE42AD952F1648D10096D62D /* 27.10 ReportTrackers.swift */,
-				CE6242542F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift */,
-				CE3B0B0E2FD15CEC00E515FF /* 27.30 RPTabWishlist.swift */,
-				CE6242562F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift */,
+				CE40BACC2EC804CE009A4ECA /* 27.00 InsightsView.swift */,
+				CE3B0B0C2FD0E47700E515FF /* 27.01 InsightsHelpers.swift */,
+				CE42AD952F1648D10096D62D /* 27.10 InsightsTrackers.swift */,
+				CE6242542F33E47D001DBD2D /* 27.20 INTabHallOfFame.swift */,
+				CE3B0B0E2FD15CEC00E515FF /* 27.30 INTabWishlist.swift */,
+				CE6242562F33E4DF001DBD2D /* 27.40 INTabInsights.swift */,
 				CE7A41000000000000000001 /* 27.41 DVLibraryStats.swift */,
 				CE7A42000000000000000001 /* 27.42 DVComponents.swift */,
 				CE7A43000000000000000001 /* 27.43 DVLibraryInsights.swift */,
 				CE7A44000000000000000001 /* 27.44 DVCanvasKit.swift */,
 				CE7A45000000000000000001 /* 27.45 DVCanvasPage.swift */,
-				CE42AD8F2F0DBB960096D62D /* 27.50 ReportExporter.swift */,
+				CE42AD8F2F0DBB960096D62D /* 27.50 InsightsExporter.swift */,
 				CE40BACE2EC804D6009A4ECA /* 28.00 ImportsView.swift */,
 				CECF3DC12EACDC5700D7897A /* 28.10 ImportProgress.swift */,
 				CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */,
@@ -448,15 +452,17 @@
 				CE40BABC2EC340D9009A4ECA /* 50.00 SearchController.swift */,
 				CE42AD5F2EEC135A0096D62D /* 50.10 SearchToken.swift */,
 				CE42AD5F2EEC135A0096D7A1 /* 50.20 SearchSuggestions.swift */,
-				5A5E5E000000000000000000 /* 50.30 SavedSearch.swift */,
-				5A5E5E000000000000000002 /* 50.31 SSStore.swift */,
-				5A5E5E000000000000000004 /* 50.32 SSSheet.swift */,
-				5A5E5E00000000000000000A /* 50.33 SSRules.swift */,
-				5A5E5E000000000000000006 /* 23.73 SSControls.swift */,
-				CE0EAEA42EDDA206005C6F4D /* 51.00 DuplicateSheet.swift */,
-				B0E0ED000000000000000002 /* 52.00 MultiFilmSheet.swift */,
-				B0E0ED000000000000000003 /* 52.10 MFSView.swift */,
-				B0E0ED000000000000000004 /* 52.20 BulkFilmEdit.swift */,
+				5A5E5E000000000000000000 /* 51.00 SavedSearch.swift */,
+				5A5E5E000000000000000002 /* 51.01 SSStore.swift */,
+				5A5E5E000000000000000004 /* 51.10 SSSheet.swift */,
+				5A5E5E00000000000000000A /* 51.11 SSRules.swift */,
+				5A5E5E000000000000000006 /* 51.20 SSControls.swift */,
+				CE0EAEA42EDDA206005C6F4D /* 52.00 DuplicateSheet.swift */,
+				B0E0ED000000000000000002 /* 53.00 MultiFilmSheet.swift */,
+				B0E0ED000000000000000003 /* 53.10 MFSView.swift */,
+				B0E0ED000000000000000004 /* 53.20 BulkFilmEdit.swift */,
+				7A6E5E000000000000000000 /* 54.00 TagSheet.swift */,
+				7A6E5E000000000000000002 /* 54.10 TagManager.swift */,
 				CE4E6B162F493B8D00D71DE7 /* 60.00 Snapshots.swift */,
 				CE2A1F382E96277600EB1C02 /* 61.00 FilmObj.swift */,
 				CECF3DDC2EB5437800D7897A /* 62.00 ListObj.swift */,
@@ -606,10 +612,12 @@
 				B0E0ED000000000000000101 /* 30.25 FSSharedFields.swift in Sources */,
 				CECF3DD72EB3325400D7897A /* 82.00 FilmComparison.swift in Sources */,
 				CE2A1F922E9C4C0A00EB1C02 /* 24.11 Header.swift in Sources */,
-				CE0EAEA52EDDA206005C6F4D /* 51.00 DuplicateSheet.swift in Sources */,
-				B0E0ED000000000000000102 /* 52.00 MultiFilmSheet.swift in Sources */,
-				B0E0ED000000000000000103 /* 52.10 MFSView.swift in Sources */,
-				B0E0ED000000000000000104 /* 52.20 BulkFilmEdit.swift in Sources */,
+				CE0EAEA52EDDA206005C6F4D /* 52.00 DuplicateSheet.swift in Sources */,
+				B0E0ED000000000000000102 /* 53.00 MultiFilmSheet.swift in Sources */,
+				B0E0ED000000000000000103 /* 53.10 MFSView.swift in Sources */,
+				B0E0ED000000000000000104 /* 53.20 BulkFilmEdit.swift in Sources */,
+				7A6E5E000000000000000001 /* 54.00 TagSheet.swift in Sources */,
+				7A6E5E000000000000000003 /* 54.10 TagManager.swift in Sources */,
 				CECF3DC22EACDC5700D7897A /* 28.10 ImportProgress.swift in Sources */,
 				CEFE00000000000000000B61 /* 28.20 ImportHistory.swift in Sources */,
 				CEF877D02ECE6836002D7E45 /* 65.00 ImportSessionObj.swift in Sources */,
@@ -621,11 +629,11 @@
 				CE2A1F782E98587300EB1C02 /* 84.10 DBImporter.swift in Sources */,
 				CE42AD602EEC135A0096D62D /* 50.10 SearchToken.swift in Sources */,
 				CE42AD602EEC135A0096D7A2 /* 50.20 SearchSuggestions.swift in Sources */,
-				5A5E5E000000000000000001 /* 50.30 SavedSearch.swift in Sources */,
-				5A5E5E000000000000000003 /* 50.31 SSStore.swift in Sources */,
-				5A5E5E000000000000000005 /* 50.32 SSSheet.swift in Sources */,
-				5A5E5E00000000000000000B /* 50.33 SSRules.swift in Sources */,
-				5A5E5E000000000000000007 /* 23.73 SSControls.swift in Sources */,
+				5A5E5E000000000000000001 /* 51.00 SavedSearch.swift in Sources */,
+				5A5E5E000000000000000003 /* 51.01 SSStore.swift in Sources */,
+				5A5E5E000000000000000005 /* 51.10 SSSheet.swift in Sources */,
+				5A5E5E00000000000000000B /* 51.11 SSRules.swift in Sources */,
+				5A5E5E000000000000000007 /* 51.20 SSControls.swift in Sources */,
 				5A5E5E000000000000000009 /* 67.00 SavedSearchObj.swift in Sources */,
 				CE40BAD32EC88BC7009A4ECA /* 11.00 DataCoordinator.swift in Sources */,
 				CE2A1F4A2E96343700EB1C02 /* 23.00 GalleryView.swift in Sources */,
@@ -636,7 +644,7 @@
 				CEC720B9301F4EE600A5FE7F /* 30.40 FSFramesList.swift in Sources */,
 				CE7C04AB2F2AB0C800F143CF /* 73.00 EventKitManager.swift in Sources */,
 				CE2A1F9E2E9F1A4A00EB1C02 /* 30.00 FilmSheet.swift in Sources */,
-				CE40BACD2EC804CE009A4ECA /* 27.00 ReportsView.swift in Sources */,
+				CE40BACD2EC804CE009A4ECA /* 27.00 InsightsView.swift in Sources */,
 				CE2A1F802E9859EB00EB1C02 /* 24.30 RTabNotes.swift in Sources */,
 				CEC720BD3027CA1A00A5FE7F /* 23.80 GalleryMenu.swift in Sources */,
 				CEC720F03027CA1A00A5FE7F /* 23.90 GallerySections.swift in Sources */,
@@ -652,12 +660,12 @@
 				CECF3DBE2EAB6D0E00D7897A /* 80.10 MetaParser.swift in Sources */,
 				CE2A1F5E2E972FD200EB1C02 /* 45.00 STabAdvanced.swift in Sources */,
 				CE2A1F962E9C4C2800EB1C02 /* 24.16 Synopsis.swift in Sources */,
-				CE42AD962F1648D10096D62D /* 27.10 ReportTrackers.swift in Sources */,
+				CE42AD962F1648D10096D62D /* 27.10 InsightsTrackers.swift in Sources */,
 				CEDB2E9F2EA3876B00E06F23 /* 34.00 FSTabNotes.swift in Sources */,
 				CE42AD8C2F071E310096D62D /* 23.10 GalleryViewUI.swift in Sources */,
 				CE6054DE2F6CA0BB009382C0 /* 33.10 ReleasesView.swift in Sources */,
 				CE2A1F6A2E97B0ED00EB1C02 /* 96.00 Preferences.swift in Sources */,
-				CE6242572F33E4DF001DBD2D /* 27.40 RPTabDataViz.swift in Sources */,
+				CE6242572F33E4DF001DBD2D /* 27.40 INTabInsights.swift in Sources */,
 				CE42AD9C2F1CF3990096D62D /* 72.00 SettingsManager.swift in Sources */,
 				CEC720BB3021C30700A5FE7F /* 30.50 FSTextList.swift in Sources */,
 				CE42AD922F1090430096D62D /* 71.00 SmartLists.swift in Sources */,
@@ -671,7 +679,7 @@
 				CE2A1F8C2E98CF6C00EB1C02 /* 83.20 DBReader.swift in Sources */,
 				CECF3DDB2EB5408C00D7897A /* 23.70 GalleryTitleBar.swift in Sources */,
 				CE40BABD2EC340D9009A4ECA /* 50.00 SearchController.swift in Sources */,
-				CE6242552F33E47D001DBD2D /* 27.20 RPTabHallOfFame.swift in Sources */,
+				CE6242552F33E47D001DBD2D /* 27.20 INTabHallOfFame.swift in Sources */,
 				CE42AD562EE2EAB80096D62D /* 24.13 CalendarPopover.swift in Sources */,
 				CE4E9AC92FDA0B7A000805F7 /* 98.20 UtilityKit.swift in Sources */,
 				CEDB2E9B2EA3875B00E06F23 /* 31.00 FSTabDetails.swift in Sources */,
@@ -707,7 +715,7 @@
 				CE42AD842EFD42B60096D62D /* 20.20 DragDropSupport.swift in Sources */,
 				CE0EAE9D2ED66B11005C6F4D /* 11.20 MemoryStore.swift in Sources */,
 				CECF3DDD2EB5437800D7897A /* 62.00 ListObj.swift in Sources */,
-				CE3B0B0D2FD0E47700E515FF /* 27.01 ReportsHelpers.swift in Sources */,
+				CE3B0B0D2FD0E47700E515FF /* 27.01 InsightsHelpers.swift in Sources */,
 				CEC720B7301F4EDD00A5FE7F /* 30.30 FSStringList.swift in Sources */,
 				CECF3DCD2EB0C4AC00D7897A /* 81.10 RatingsParser.swift in Sources */,
 				CE0EAE9F2ED85F37005C6F4D /* 70.00 LibraryManager.swift in Sources */,
@@ -720,7 +728,7 @@
 				CE7A44000000000000000002 /* 27.44 DVCanvasKit.swift in Sources */,
 				CE7A45000000000000000002 /* 27.45 DVCanvasPage.swift in Sources */,
 				CE7A99350000000000000002 /* 99.40 DHDataViz.swift in Sources */,
-				CE42AD902F0DBB960096D62D /* 27.50 ReportExporter.swift in Sources */,
+				CE42AD902F0DBB960096D62D /* 27.50 InsightsExporter.swift in Sources */,
 				CEFE00000000000000000002 /* 99.30 DHPDF.swift in Sources */,
 				CEFE00000000000000000A21 /* 99.31 DHPDFSections.swift in Sources */,
 				CEFE00000000000000000B31 /* 99.53 DHDocumentation.swift in Sources */,
@@ -746,7 +754,7 @@
 				CE42AD6A2EEEAE130096D62D /* 10.10 SheetHostView.swift in Sources */,
 				CEF877C82ECC3F99002D7E45 /* 23.50 GalleryItemView.swift in Sources */,
 				CECF3DC52EAEFF1300D7897A /* 80.11 MetaParserDebug.swift in Sources */,
-				CE3B0B0F2FD15CEC00E515FF /* 27.30 RPTabWishlist.swift in Sources */,
+				CE3B0B0F2FD15CEC00E515FF /* 27.30 INTabWishlist.swift in Sources */,
 				CE2A1F6E2E983B7100EB1C02 /* 10.00 FilmTrackerApp.swift in Sources */,
 				CEC720B13012D52500A5FE7F /* 26.00 UnwatchedView.swift in Sources */,
 				CEB5008E2F4B0071006A3232 /* 11.21 MemStoreCache.swift in Sources */,
@@ -889,7 +897,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 149;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -940,7 +948,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 137;
+				CURRENT_PROJECT_VERSION = 149;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

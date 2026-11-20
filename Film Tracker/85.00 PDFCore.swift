@@ -12,7 +12,7 @@
 ///     85.20 PDFReport.swift   ← the complete-library table's content and rules
 ///
 /// Both PDF-producing features draw from this stack: the per-tab report sheets in
-/// ReportExporter.swift (27.50) and the whole-library export in PDFExporter.swift
+/// InsightsExporter.swift (27.50) and the whole-library export in PDFExporter.swift
 /// (85.40), which assembles those sheets after the library table. Anything either of them
 /// would otherwise restate belongs here.
 

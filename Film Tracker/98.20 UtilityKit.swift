@@ -449,6 +449,10 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
     var alwaysOverflows: Bool
     /// See `AppKitScrollStyle`.
     var style: AppKitScrollStyle
+    /// Room kept clear below the vertical scroller, for an overlay along the bottom edge (a status bar). Unlike `style`,
+    /// it is applied on every update, so it follows the overlay as it shows, hides, or changes height. The content
+    /// supplies its own matching bottom headroom.
+    var scrollerBottomInset: CGFloat
 
     init(
         modifier: Modifier,
@@ -459,8 +463,10 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
         contentResetKey: AnyHashable? = nil,
         alwaysOverflows: Bool = false,
         style: AppKitScrollStyle = .standard,
+        scrollerBottomInset: CGFloat = 0,
         @ViewBuilder content: () -> Content
     ) {
+        self.scrollerBottomInset = scrollerBottomInset
         self.activation = activation
         self.style = style
         self.alwaysOverflows = alwaysOverflows
@@ -484,6 +490,7 @@ struct AppKitScrollView<Content: View, Modifier: ViewModifier>: View {
                 contentResetKey: contentResetKey,
                 alwaysOverflows: alwaysOverflows,
                 style: style,
+                scrollerBottomInset: scrollerBottomInset,
                 revision: AppKitScrollRevision.next(),
                 content: content
             )
@@ -824,6 +831,8 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
     let alwaysOverflows: Bool
     /// Applied once, in makeNSView. See `AppKitScrollStyle`.
     let style: AppKitScrollStyle
+    /// See `AppKitScrollView.scrollerBottomInset`.
+    let scrollerBottomInset: CGFloat
     /// See `AppKitScrollRevision`.
     let revision: Int
     let content: Content
@@ -1335,6 +1344,9 @@ private struct AppKitScrollNSView<Content: View, Modifier: ViewModifier>: NSView
 
     func updateNSView(_ scrollView: HitTestGatedScrollView, context: Context) {
         let coordinator = context.coordinator
+        if scrollView.scrollerInsets.bottom != scrollerBottomInset {
+            scrollView.scrollerInsets = NSEdgeInsets(top: 0, left: 0, bottom: scrollerBottomInset, right: 0)
+        }
         /// Keep the live-scroll callback and the wired proxy current. Both are
         /// cheap assignments and are deliberately kept outside the isContinuous
         /// guard below so neither can go stale mid-animation.

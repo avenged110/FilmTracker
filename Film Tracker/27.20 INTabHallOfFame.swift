@@ -1,4 +1,4 @@
-// MARK: - RPTabHallOfFame.swift
+// MARK: - INTabHallOfFame.swift
 // Copyright © 2026 avenged110.
 // SPDX-License-Identifier: GPL-3.0-only
 /// The Hall of Fame report: a ranked list of films, with each film's purchase standing and upgrade note. Its rows also feed the PDF export.
@@ -19,7 +19,7 @@ struct HallOfFameView: View {
     @AppStorage(preference: Preferences.defaultRotationThresholdKey) private var rotationMonths: Int
 
     private static let emptyStateConfig = EmptyStateConfig(
-        glyph: ReportsCategory.hallOfFame.glyph,
+        glyph: InsightsCategory.hallOfFame.glyph,
         noFilmsMessage: "Add films to your library to create a Hall of Fame.",
         noDataMessage: "Set Hall of Fame positions for films to create your personal ranking."
     )
@@ -27,29 +27,29 @@ struct HallOfFameView: View {
     /// Queue, rotation, best format owned, rating, then release year, with the gallery list view's 16 pt gap (ListRowView.columnGap)
     /// between each column's widest usual content and the next column's content. The table adds 12 pt between columns, so each
     /// column is its content plus 4 pt. Measured: the Queue glyph is 14 pt, so 18. The rating's star and "10" are 28 pt, so 32.
-    /// The clock and "2+" are 29 pt, and the badge plate starts 3 pt into its column (ReportTableCellView's badgeOutsideAllowance),
+    /// The clock and "2+" are 29 pt, and the badge plate starts 3 pt into its column (InsightsTableCellView's badgeOutsideAllowance),
     /// so 30; the 18-month "1.5+" (37 pt) runs 7 pt past it and leaves 9. The 52 pt plate (the Wishlist's, for "4K UHD") ends 55 pt
     /// into the badge column, so 59. The year ends as the list's does, 8 pt (GalleryListRow.contentInset) before the cell's trailing edge:
     /// right-aligned in a 30 pt box (the list's yearColumnWidth) with an 8 pt trailing pad, so 38. "1999" in 12 pt monospaced is 29.7 pt.
-    private static let trailingColumns: [ReportTableColumn<HallOfFameFilm>] = [
-        ReportTableColumn(id: "queue", width: 18,
+    private static let trailingColumns: [InsightsTableColumn<HallOfFameFilm>] = [
+        InsightsTableColumn(id: "queue", width: 18,
                           content: .symbol("text.line.last.and.arrowtriangle.forward", label: "In Queue") { $0.isQueued }),
-        ReportTableColumn(id: "rotation", width: 30,
+        InsightsTableColumn(id: "rotation", width: 30,
                           content: .symbolText(symbol: "clock.fill") { $0.rotationLabel }),
         /// The plate is the column's width less its trailing pad: 59 − 7 = 52.
-        ReportTableColumn(id: "format", width: 59, trailingPad: 7, content: .badge { $0.purchase.ownedBadge }),
-        ReportTableColumn(id: "rating", width: 32, content: .rating { $0.userRating }),
-        ReportTableColumn(id: "year", width: 38, alignment: .right, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
+        InsightsTableColumn(id: "format", width: 59, trailingPad: 7, content: .badge { $0.purchase.ownedBadge }),
+        InsightsTableColumn(id: "rating", width: 32, content: .rating { $0.userRating }),
+        InsightsTableColumn(id: "year", width: 38, alignment: .right, font: .monospacedSystemFont(ofSize: 12, weight: .regular),
                           isSecondary: true, trailingPad: 8, content: .text { $0.releaseYear })
     ]
 
     var body: some View {
-        ReportsEmptyStateWrapper(
+        InsightsEmptyStateWrapper(
             totalFilmCount: dataCoordinator.totalFilmCount,
             isEmpty: films.isEmpty,
             config: Self.emptyStateConfig
         ) {
-            ReportsRankedListView(
+            InsightsRankedListView(
                 items: films,
                 selection: $selection,
                 onSelectionChange: handleSelectionChange,
@@ -66,9 +66,9 @@ struct HallOfFameView: View {
         /// would re-evaluate the whole tab on every selection change.
         .onAppear {
             /// Mount path. Seed from the cache so the list renders at once, then reconcile with a fresh load two run-loop cycles later,
-            /// after the Picker's fade (see ReportsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
-            if ReportsState.shared.hasLoadedData(for: .hallOfFame) {
-                films = ReportsState.shared.cachedHallOfFameFilms
+            /// after the Picker's fade (see InsightsState.selectCategory). The first visit loads synchronously, to avoid a placeholder flash.
+            if InsightsState.shared.hasLoadedData(for: .hallOfFame) {
+                films = InsightsState.shared.cachedHallOfFameFilms
                 DispatchQueue.main.async {
                     DispatchQueue.main.async {
                         reconcileHallOfFameFilms()
@@ -94,7 +94,7 @@ struct HallOfFameView: View {
             switch event {
             case .updated(let filmID):
                 /// Use dataCoordinator.hallOfFameFilms, the canonical UUID list. dataCoordinator.films is the active view's filtered array,
-                /// which may not contain the film in Reports. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
+                /// which may not contain the film in Insights. Selection cleanup rides on the reload (see pruneSelectionToLiveRows).
                 if films.contains(where: { $0.id == filmID })
                     || dataCoordinator.hallOfFameFilms.contains(filmID) {
                     scheduleReload()
@@ -181,13 +181,13 @@ struct HallOfFameView: View {
             films = rebuilt
         }
 
-        /// Always called. ReportsState does its own change detection, and it needs the first call to mark the category loaded.
-        ReportsState.shared.updateHallOfFameData(rebuilt)
+        /// Always called. InsightsState does its own change detection, and it needs the first call to mark the category loaded.
+        InsightsState.shared.updateHallOfFameData(rebuilt)
 
         pruneSelectionToLiveRows()
     }
 
-    /// Drops any selected film that no longer has a row, after a reload replaces `films`. ReportsRankedListView maps the change into
+    /// Drops any selected film that no longer has a row, after a reload replaces `films`. InsightsRankedListView maps the change into
     /// SelectionState through `handleSelectionChange`, including the clear when nothing is left. It runs one run-loop pass later, from the
     /// current `films`, as ReleaseWishlistView's prune does.
     private func pruneSelectionToLiveRows() {
@@ -216,8 +216,8 @@ struct HallOfFameView: View {
         /// Update coordinator (debounced persistence).
         dataCoordinator.reorderHallOfFame(orderedFilmIDs)
 
-        /// Update ReportsState.
-        ReportsState.shared.updateHallOfFameData(films)
+        /// Update InsightsState.
+        InsightsState.shared.updateHallOfFameData(films)
     }
 
     private func handleSelectionChange(_ newSelection: Set<UUID>) {
@@ -282,7 +282,7 @@ enum HallOfFamePurchase: Equatable, Sendable {
     }
 
     /// The format column's badge: the best format owned, or none.
-    var ownedBadge: ReportBadge? { ownedFormat.map { ReportBadge.format($0.rawValue) } }
+    var ownedBadge: InsightsBadge? { ownedFormat.map { InsightsBadge.format($0.rawValue) } }
 
     /// The highest-ranked recognized format present, or nil if none is. An unrecognized format string is skipped, since this value names a format in the report.
     private static func best(in releases: [ReleaseSnapshot]) -> ReleaseFormat? {
@@ -354,7 +354,7 @@ struct HallOfFameFilm: Identifiable, Equatable, RankedItem {
 // MARK: - Status Bar Totals
 
 /// The Hall of Fame's status bar summary: how many films are owned in each best format, how many are not owned, and how many carry each
-/// rating. Rebuilt with the rows in ReportsState.updateHallOfFameData, change-guarded, so a drag-reorder does not redraw the bar.
+/// rating. Rebuilt with the rows in InsightsState.updateHallOfFameData, change-guarded, so a drag-reorder does not redraw the bar.
 struct HallOfFameTotals: Equatable {
     var total = 0
     /// Films by best format owned, in ladder order (4K UHD, Blu-ray, DVD); formats nobody's best is are left out.

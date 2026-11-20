@@ -671,11 +671,35 @@ final class DBRestorer: Loggable {
         film.name = parser.parseString("name")
         film.releaseYear = parser.parseString("releaseYear")
         film.userRating = parser.parseInt("userRating")
-        film.lastWatched = cleanedLastWatched
+        film.lastWatched = floorDate(cleanedLastWatched, field: "lastWatched", film: film.name,
+                                     fallback: StorageDateFormatters.dot.string(from: DateFloor.date))
         film.rotationThresholdOverride = parser.parseOptionalInt("rotationThresholdOverride")
         film.duration = parser.parseString("duration")
         film.viewCount = parser.parseInt("viewCount")
-        film.calendarTable = parser.parseStringArray("calendarTable")
+        /// Viewings before the floor become January 1, 1910. The Viewing History never holds one day twice (compared by day, version
+        /// codes aside, as WatchDetails.addViewing does), so a clamped viewing whose day is already present, wherever it sits in the
+        /// list, is dropped and logged, and `viewCount` (derived from the entry count) drops with it.
+        let viewingEntries = parser.parseStringArray("calendarTable")
+        let flooredEntries = viewingEntries.map {
+            floorDate($0, field: "viewing date", film: film.name, log: false,
+                      fallback: StorageDateFormatters.dot.string(from: DateFloor.date))
+        }
+        func viewingDay(_ entry: String) -> String { extractDatePortion(from: entry) ?? entry }
+        var takenDays = Set(zip(viewingEntries, flooredEntries).filter { $0.0 == $0.1 }.map { viewingDay($0.1) })
+        var keptViewings: [String] = []
+        var droppedViewings = 0
+        for (entry, floored) in zip(viewingEntries, flooredEntries) {
+            guard floored != entry else { keptViewings.append(entry); continue }
+            if takenDays.insert(viewingDay(floored)).inserted {
+                logFloored(field: "viewing date", film: film.name, release: nil, original: entry, restored: floored)
+                keptViewings.append(floored)
+            } else {
+                Self.log("NOTE: Film '\(Self.displayName(film.name))': viewing date \(entry) dropped — clamped to the \(DateFloor.year) date floor, it would repeat \(viewingDay(floored))")
+                droppedViewings += 1
+            }
+        }
+        film.calendarTable = keptViewings
+        if droppedViewings > 0 { film.viewCount = max(0, film.viewCount - droppedViewings) }
         film.autoAddToQueueOnRotation = parser.parseOptionalInt("autoAddToQueueOnRotation")
         film.digitalSource = parser.parseString("digitalSource")
         film.digitalVersion = parser.parseString("digitalVersion")
@@ -689,8 +713,10 @@ final class DBRestorer: Loggable {
         film.frameRate = parser.parseDouble("frameRate")
         film.tags = parser.parseStringArray("tags")
         film.externalIdentifiers = parser.parseStringArray("externalIdentifiers")
-        film.dateAdded = parser.parseString("dateAdded")
-        film.lastModified = parser.parseString("lastModified")
+        film.dateAdded = floorDate(parser.parseString("dateAdded"), field: "dateAdded", film: film.name,
+                                   fallback: DateFloor.date.formatted(StorageDateFormatters.timestamp))
+        film.lastModified = floorDate(parser.parseString("lastModified"), field: "lastModified", film: film.name,
+                                      fallback: DateFloor.date.formatted(StorageDateFormatters.timestamp))
         film.watched = parser.parseBool("watched", default: true)
         film.specialSorting = parser.parseStringArray("specialSorting")
         film.alternateTitle = parser.parseStringArray("alternateTitle")
@@ -698,7 +724,12 @@ final class DBRestorer: Loggable {
         film.infoComplete = parser.parseBool("infoComplete")
         film.comments = parser.parseString("comments")
         film.genre = parser.parseString("genre")
-        film.releaseDate = parser.parseString("releaseDate")
+        film.releaseDate = floorDate(parser.parseString("releaseDate"), field: "releaseDate", film: film.name,
+                                     fallback: StorageDateFormatters.dash.string(from: DateFloor.date))
+        if let year = Int(film.releaseYear), year < DateFloor.year {
+            Self.log("NOTE: Film '\(Self.displayName(film.name))': releaseYear \(year) restored as \(DateFloor.year) — clamped to the \(DateFloor.year) date floor")
+            film.releaseYear = String(DateFloor.year)
+        }
         film.descriptionText = parser.parseString("descriptionText")
         film.rating = parser.parseString("rating")
         film.studio = parser.parseStringArray("studio")
@@ -714,7 +745,8 @@ final class DBRestorer: Loggable {
         film.releaseUsed = parser.parseString("releaseUsed")
         film.tools = parser.parseStringArray("tools")
         film.editedHBRFValue = parser.parseInt("editedHBRFValue")
-        film.editDate = parser.parseString("editDate")
+        film.editDate = floorDate(parser.parseString("editDate"), field: "editDate", film: film.name,
+                                  fallback: StorageDateFormatters.dash.string(from: DateFloor.date))
         film.warning = parser.parseStringArray("warning")
         film.descriptionNotes = parser.parseString("descriptionNotes")
         film.notesOnAudioTiming = parser.parseStringArray("notesOnAudioTiming")
@@ -1159,12 +1191,14 @@ final class DBRestorer: Loggable {
             numberOfCopies: parser.parseInt("numberOfCopies"),
             cost: parser.parseDouble("cost"),
             amountSpent: parser.parseDouble("amountSpent"),
-            purchaseDate: parser.parseString("purchaseDate"),
+            purchaseDate: floorDate(parser.parseString("purchaseDate"), field: "purchaseDate", film: film.name,
+                                    release: parsed.exportID, fallback: StorageDateFormatters.dot.string(from: DateFloor.date)),
             lowestPrice: parser.parseDouble("lowestPrice"),
-            lowestPriceDate: parser.parseString("lowestPriceDate"),
+            lowestPriceDate: floorDate(parser.parseString("lowestPriceDate"), field: "lowestPriceDate", film: film.name,
+                                       release: parsed.exportID, fallback: StorageDateFormatters.dot.string(from: DateFloor.date)),
             condition: parser.parseString("condition"),
             notes: parser.parseString("notes"),
-            dateAdded: parser.parseDate("dateAdded"),
+            dateAdded: floorDate(parser.parseDate("dateAdded"), field: "release dateAdded", film: film.name, release: parsed.exportID),
             sortOrder: parser.parseInt("sortOrder"),
             film: film
         )
@@ -1189,6 +1223,44 @@ final class DBRestorer: Loggable {
         return properties.keys.contains(key)
     }
     
+    // MARK: - Date Floor
+    /// Restored dates follow the app's floor (DateFloor): a date before January 1, 1910 is restored as that day, and each one is logged
+    /// with its film, the backup's value and the restored value. A stored `yyyy.MM.dd` or `yyyy-MM-dd` prefix keeps its spelling and
+    /// whatever follows it (a version code, a timestamp's time); any other spelling below the floor is written as `fallback`.
+    private func floorDate(_ value: String, field: String, film: String, release: String? = nil, log: Bool = true,
+                           fallback: @autoclosure () -> String) -> String {
+        let u = Array(value.utf8)
+        let prefixed = u.count >= 10 && (u[4] == UInt8(ascii: ".") || u[4] == UInt8(ascii: "-")) && u[7] == u[4]
+            && [0, 1, 2, 3, 5, 6, 8, 9].allSatisfy { (48...57).contains(u[$0]) }
+        let year = prefixed ? Int(String(value.prefix(4)))
+                            : parseDate(from: value).map { StorageDateFormatters.calendar.component(.year, from: $0) }
+        guard let year, year < DateFloor.year else { return value }
+        let restored: String
+        if prefixed {
+            let sep = String(UnicodeScalar(u[4]))
+            restored = "\(DateFloor.year)\(sep)01\(sep)01" + value.dropFirst(10)
+        } else {
+            restored = fallback()
+        }
+        if log { logFloored(field: field, film: film, release: release, original: value, restored: restored) }
+        return restored
+    }
+
+    private func floorDate(_ value: Date, field: String, film: String, release: String) -> Date {
+        guard value < DateFloor.date else { return value }
+        logFloored(field: field, film: film, release: release,
+                   original: value.formatted(StorageDateFormatters.timestamp),
+                   restored: DateFloor.date.formatted(StorageDateFormatters.timestamp))
+        return DateFloor.date
+    }
+
+    private static func displayName(_ name: String) -> String { name.isEmpty ? "(untitled)" : name }
+
+    private func logFloored(field: String, film: String, release: String?, original: String, restored: String) {
+        let owner = release.map { "Film '\(Self.displayName(film))', release \($0)" } ?? "Film '\(Self.displayName(film))'"
+        Self.log("NOTE: \(owner): \(field) \(original) restored as \(restored) — clamped to the \(DateFloor.year) date floor")
+    }
+
     /// Logs malformed data warnings
     private func logMalformed(_ message: String) {
         Self.log("WARNING: \(message)")

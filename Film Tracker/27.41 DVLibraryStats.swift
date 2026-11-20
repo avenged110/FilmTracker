@@ -127,11 +127,11 @@ struct LibraryStatistics {
     let averageRating: String
     let ratingsBreakdown: [(rating: Int, count: Int, percent: Double)]
     
-    /// Local midnight of a stored purchase date, or nil when the field is empty or not a real day. Dates are stored as `yyyy.MM.dd`
+    /// Local midnight of a stored purchase date (raised to DateFloor), or nil when the field is empty or not a real day. Dates are stored as `yyyy.MM.dd`
     /// (`StorageDateFormatters.dot`), and the app's shared `parseDate` reads that form, along with the dash and slash spellings.
     static func purchaseDay(_ text: String, calendar: Calendar) -> Date? {
         guard !text.isEmpty else { return nil }
-        return parseDate(from: text).map { calendar.startOfDay(for: $0) }
+        return parseDate(from: text).map { DateFloor.clamp(calendar.startOfDay(for: $0)) }
     }
 
     /// - Parameter showInfoComplete: Whether the "Not available on Blu-ray" row may be vended. It needs the Info Complete preference and a 99%
@@ -416,8 +416,9 @@ struct LibraryStatistics {
         ]
         self.audioChannelDenominatorAll = audioTaggedReleaseCountAll
 
-        self.audioCodecs = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCounts[$0] ?? 0, of: codecCounts.values.reduce(0, +)) }
-        self.audioCodecsAll = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCountsAll[$0] ?? 0, of: codecCountsAll.values.reduce(0, +)) }
+        let codecTotal = codecCounts.values.reduce(0, +), codecTotalAll = codecCountsAll.values.reduce(0, +)
+        self.audioCodecs = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCounts[$0] ?? 0, of: codecTotal) }
+        self.audioCodecsAll = ReleaseAudioFormat.hdOptions.map { DVTally($0, codecCountsAll[$0] ?? 0, of: codecTotalAll) }
 
         /// Source distribution, ordered by quality, descending. These are stored values used as dictionary keys, so the remastered
         /// forms are composed through FilmDigitalSource to match the FilmSheet byte for byte. The picker's list ascends.

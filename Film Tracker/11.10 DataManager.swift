@@ -127,10 +127,15 @@ actor DataManager: Loggable {
             return nil
         }
 
+        /// Link layer: every link with both films, as memory would hold it (orphans excluded,
+        /// as the membership count excludes them). Failing to read it is a miss, as for films.
+        guard let linkLayer = fetchFilmLinkLayerDigest() else { return nil }
+
         log("STARTUP BREAKDOWN (live fingerprint) — "
             + "filmFetch: \(fetchElapsed.formattedMilliseconds) | "
             + "total: \((ContinuousClock.now - start).formattedMilliseconds) | "
-            + "films: \(filmLayer.filmCount), lists: \(listCount), memberships: \(membershipCount)")
+            + "films: \(filmLayer.filmCount), lists: \(listCount), memberships: \(membershipCount), "
+            + "links: \(linkLayer.linkCount)")
 
         return StoreFingerprint(
             filmCount: filmLayer.filmCount,
@@ -139,8 +144,38 @@ actor DataManager: Loggable {
             listCount: listCount,
             membershipCount: membershipCount,
             hofRankFingerprint: filmLayer.hofRankXor,
-            userRatingFingerprint: filmLayer.userRatingXor
+            userRatingFingerprint: filmLayer.userRatingXor,
+            linkCount: linkLayer.linkCount,
+            linkFingerprint: linkLayer.xor
         )
+    }
+
+    /// The link layer of the live fingerprint: every link with both films, as a dictionary
+    /// fetch of the five columns the digest reads (the films' IDs through a join), so it builds
+    /// no FilmLink objects and faults no Film, as the film layer does. A row missing a value
+    /// returns nil, which is a cache miss (fails safe).
+    private func fetchFilmLinkLayerDigest() -> FilmLinkLayerDigest? {
+        func filmID(_ name: String, through relationship: String) -> NSExpressionDescription {
+            let description = NSExpressionDescription()
+            description.name = name
+            description.expression = NSExpression(forKeyPath: "\(relationship).id")
+            description.expressionResultType = .UUIDAttributeType
+            return description
+        }
+        let request = NSFetchRequest<NSDictionary>(entityName: FilmLink.entityName)
+        request.resultType = .dictionaryResultType
+        request.predicate = NSPredicate(format: "sourceFilm != nil AND targetFilm != nil")
+        request.propertiesToFetch = ["id", "kind", "dateAdded", filmID("sourceID", through: "sourceFilm"),
+                                     filmID("targetID", through: "targetFilm")]
+        guard let rows = try? context.fetch(request) else { return nil }
+
+        var digest = FilmLinkLayerDigest()
+        for row in rows {
+            guard let id = row["id"] as? UUID, let kind = row["kind"] as? String, let date = row["dateAdded"] as? Date,
+                  let source = row["sourceID"] as? UUID, let target = row["targetID"] as? UUID else { return nil }
+            digest.add(FilmLinkSnapshot(id: id, kind: kind, sourceID: source, targetID: target, dateAdded: date))
+        }
+        return digest
     }
 
     #if DEBUG
@@ -1186,6 +1221,184 @@ actor DataManager: Loggable {
 
 }
 
+// MARK: - Film Link Operations
+
+/// Why a film link could not be set. The store is unchanged when one is thrown.
+enum FilmLinkError: Error, LocalizedError, Equatable {
+    case selfLink
+    case emptyKind
+    case filmNotFound(UUID)
+    /// The link would close a cycle among links of its kind (FilmLinkRules rule 3).
+    case cycle
+
+    var errorDescription: String? {
+        switch self {
+        case .selfLink: return "A film can't be linked to itself."
+        case .emptyKind: return "A film link needs a kind."
+        case .filmNotFound(let id): return "Film not found: \(id)"
+        case .cycle: return "That link would make the films a loop of the same kind."
+        }
+    }
+}
+
+/// Every film link write goes through here, on the actor's background context, one commit per
+/// call. The rules are FilmLinkRules'; deleting a film needs nothing from this section, since
+/// both of Film's link relationships cascade (deleteFilms already refreshes the film first, so
+/// links another context saved are deleted too).
+extension DataManager {
+
+    /// Makes the store hold exactly `link` on its pair: the row with its ID (created if there
+    /// is none, moved if it sits on another pair), with its kind, ends and date, and no other
+    /// link on the pair. This is the write DataCoordinator sends, so the store ends with the
+    /// very link memory shows, ID and date included. Validated against the store as it is
+    /// (FilmLinkRules 1–3, both films present); throws FilmLinkError, leaving the store as it
+    /// was. One commit.
+    func saveFilmLink(_ link: FilmLinkSnapshot) throws {
+        let kind = FilmLinkKind.normalized(link.kind)
+        guard !kind.isEmpty else { throw FilmLinkError.emptyKind }
+        guard link.sourceID != link.targetID else { throw FilmLinkError.selfLink }
+
+        let films = try context.fetch(Film.request(.in("id", [link.sourceID, link.targetID])))
+        guard let source = films.first(where: { $0.id == link.sourceID }) else { throw FilmLinkError.filmNotFound(link.sourceID) }
+        guard let target = films.first(where: { $0.id == link.targetID }) else { throw FilmLinkError.filmNotFound(link.targetID) }
+
+        /// Every link as stored. Those on this pair are being replaced, and so is the row with
+        /// this ID wherever it sits, so all of them are left out of the cycle test. Normally the
+        /// pair holds at most one link and it has this ID; a store the launch cleanup has not
+        /// repaired yet can hold more, and every other one is deleted, so the pair ends with
+        /// exactly this link either way.
+        let links = try fetchAllFilmLinks()
+        let replaced = links.filter { $0.id == link.id || $0.snapshot?.pair == link.pair }
+        let edges = links.compactMap { stored -> FilmLinkRules.Edge? in
+            guard !replaced.contains(where: { $0 === stored }) else { return nil }
+            return stored.snapshot?.edge
+        }
+        guard !FilmLinkRules.closesCycle(source: link.sourceID, target: link.targetID, kind: kind, in: edges) else {
+            throw FilmLinkError.cycle
+        }
+
+        let row: FilmLink
+        if let existing = replaced.first(where: { $0.id == link.id }) {
+            existing.kind = kind
+            existing.sourceFilm = source
+            existing.targetFilm = target
+            existing.dateAdded = link.dateAdded
+            row = existing
+        } else {
+            row = FilmLink(id: link.id, kind: kind, source: source, target: target, dateAdded: link.dateAdded)
+        }
+        for extra in replaced where extra !== row { context.delete(extra) }
+        try commit()
+        log("Linked \(link.sourceID) → \(link.targetID) as \(kind)\(replaced.isEmpty ? "" : " (replacing \(replaced.count) stored link(s))")")
+    }
+
+    /// Deletes the link between two films, whichever way it points. Returns how many were
+    /// deleted (more than one only in a store the launch cleanup has not repaired yet).
+    @discardableResult
+    func removeFilmLinks(between a: UUID, and b: UUID) throws -> Int {
+        let pair = FilmLinkRules.Pair(a, b)
+        let doomed = try fetchAllFilmLinks().filter { link in
+            guard let s = link.sourceFilm?.id, let t = link.targetFilm?.id else { return false }
+            return FilmLinkRules.Pair(s, t) == pair
+        }
+        for link in doomed { context.delete(link) }
+        try commit()
+        return doomed.count
+    }
+
+    /// What `cleanupFilmLinks` did: how many links it removed for each reason, their IDs, and,
+    /// when it removed any, every link left in the store, so DataCoordinator can bring memory
+    /// into line with exactly what the store now holds.
+    struct FilmLinkCleanup: Sendable {
+        var counts: [FilmLinkRules.Rejection: Int] = [:]
+        var removedIDs: Set<UUID> = []
+        var kept: [FilmLinkSnapshot] = []
+    }
+
+    /// Removes links that break FilmLinkRules: orphans, self-links, empty kinds, a second link
+    /// on a pair and links closing a cycle of one kind. Oldest links win (FilmLinkRules.sieve),
+    /// so the result is the same whenever it runs, and the same as MemoryStore's slow-path load,
+    /// which sieves the same rows in the same order. Runs at launch after the membership cleanup;
+    /// with nothing to remove it commits nothing. One commit for all of it.
+    func cleanupFilmLinks() throws -> FilmLinkCleanup {
+        #if DEBUG
+        let threadProbe = DataManagerThreadProbe.begin("cleanupFilmLinks")
+        defer { threadProbe?.end() }
+        #endif
+
+        let links = try fetchAllFilmLinks()
+        guard !links.isEmpty else { return FilmLinkCleanup() }
+        let (kept, rejected) = FilmLinkRules.sieve(links, ends: { link in
+            guard let s = link.sourceFilm?.id, let t = link.targetFilm?.id else { return nil }
+            return (s, t)
+        }, kind: \.kind)
+        guard !rejected.isEmpty else { return FilmLinkCleanup() }
+
+        /// No cancellation check, unlike the membership cleanup: this runs as a tracked
+        /// operation (DataCoordinator.cleanupFilmLinks), which shutdown lets finish rather than
+        /// cancels, and memory is brought into line with what it commits.
+        var result = FilmLinkCleanup(kept: kept.compactMap(\.snapshot))
+        for (link, reason) in rejected where unsafe link.managedObjectContext != nil {
+            result.removedIDs.insert(link.id)
+            context.delete(link)
+            result.counts[reason, default: 0] += 1
+        }
+        try commit()
+        return result
+    }
+
+    /// Every link row, orphans included, in FilmLinkRules.ordersBefore order (sorted here,
+    /// where the ID tie-break can be applied), read fresh from the store. The table is small
+    /// (one row per link the user made), so it is read whole.
+    private func fetchAllFilmLinks() throws -> [FilmLink] {
+        let request = FilmLink.request()
+        request.shouldRefreshRefetchedObjects = true
+        return try context.fetch(request).sorted {
+            FilmLinkRules.ordersBefore(($0.dateAdded, $0.id), ($1.dateAdded, $1.id))
+        }
+    }
+}
+
+#if DEBUG
+/// Reads and writes only the harness uses (99.63 DHFilmLinks), to drive and inspect the store
+/// directly. The app writes through DataCoordinator, which sends `saveFilmLink`.
+extension DataManager {
+
+    /// Every link that has both films, oldest first, as stored.
+    func fetchFilmLinks() throws -> [FilmLinkSnapshot] {
+        try fetchAllFilmLinks().compactMap(\.snapshot)
+    }
+
+    /// The links `filmID` is part of, in either direction, oldest first.
+    func fetchFilmLinks(for filmID: UUID) throws -> [FilmLinkSnapshot] {
+        try fetchFilmLinks().filter { $0.sourceID == filmID || $0.targetID == filmID }
+    }
+
+    /// Records "source is a `kind` of target". A pair already linked (either direction, any
+    /// kind) has that link rewritten in place: same ID and date, new kind and direction (the
+    /// oldest, in a store not yet cleaned). Throws FilmLinkError as `saveFilmLink` does.
+    @discardableResult
+    func setFilmLink(source sourceID: UUID, target targetID: UUID, kind rawKind: String) throws -> FilmLinkSnapshot {
+        let pair = FilmLinkRules.Pair(sourceID, targetID)
+        let existing = try fetchAllFilmLinks().first { $0.snapshot?.pair == pair }
+        let desired = FilmLinkSnapshot(id: existing?.id ?? UUID(), kind: FilmLinkKind.normalized(rawKind),
+                                       sourceID: sourceID, targetID: targetID,
+                                       dateAdded: existing?.dateAdded ?? Date())
+        try saveFilmLink(desired)
+        return desired
+    }
+
+    /// Deletes one link. Returns whether it existed.
+    @discardableResult
+    func removeFilmLink(id: UUID) throws -> Bool {
+        guard let link = try context.fetch(FilmLink.request(.equals("id", id))).first else { return false }
+        context.delete(link)
+        try commit()
+        return true
+    }
+}
+#endif
+
 // MARK: - Film Layer Digest
 
 /// The film half of `StoreFingerprint`, accumulated one film at a time. Both ways
@@ -1207,6 +1420,46 @@ struct FilmLayerDigest: Equatable, Sendable {
         if lastModified > maxLastModified { maxLastModified = lastModified }
         hofRankXor ^= StoreFingerprint.rankMix(idHash, hofPosition)
         userRatingXor ^= StoreFingerprint.rankMix(idHash, userRating)
+    }
+}
+
+// MARK: - Film Link Layer Digest
+
+/// The link half of `StoreFingerprint`, accumulated one link at a time, fed by both the live
+/// side (`DataManager.computeStoreFingerprint`) and the stored side
+/// (`MemoryStoreCache.buildFingerprint`), so the two cannot mix a link differently.
+///
+/// Each link's ID, source, target, kind and date are chained through `StoreFingerprint.rankMix`,
+/// so swapping the ends, moving a kind to another link or rewriting a link in place (same ID)
+/// all change the digest; XOR keeps it independent of order. The kind is hashed with FNV-1a
+/// over its UTF-8 bytes, which is the same in every process (Swift's `hashValue` is seeded
+/// per launch and would never match a stored value). The date is in it because the date
+/// orders links (which one the rules keep, the order they are listed in) and a cache must
+/// not show an order the store would not; it is the stored Double's exact bits, which the
+/// store, memory and the snapshot cache's JSON all carry unchanged.
+struct FilmLinkLayerDigest: Equatable, Sendable {
+    private(set) var linkCount = 0
+    private(set) var xor: UInt64 = 0
+
+    mutating func add(_ link: FilmLinkSnapshot) {
+        func fold(_ id: UUID) -> UInt64 { let (hi, lo) = id.fingerprintHalves; return hi ^ lo }
+        var mixed = StoreFingerprint.rankMix(fold(link.id), 1)
+        mixed = StoreFingerprint.rankMix(mixed ^ fold(link.sourceID), 2)
+        mixed = StoreFingerprint.rankMix(mixed ^ fold(link.targetID), 3)
+        mixed = StoreFingerprint.rankMix(mixed ^ Self.stableHash(link.kind), 4)
+        mixed = StoreFingerprint.rankMix(mixed ^ link.dateAdded.timeIntervalSinceReferenceDate.bitPattern, 5)
+        linkCount += 1
+        xor ^= mixed
+    }
+
+    /// FNV-1a, 64-bit.
+    static func stableHash(_ text: String) -> UInt64 {
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        return hash
     }
 }
 

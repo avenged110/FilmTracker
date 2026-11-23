@@ -551,6 +551,8 @@ nonisolated struct RecPick: Identifiable, Equatable, Sendable {
     let genre: String
     let synopsis: String
     let userRating: Int
+    /// False for a film never watched: its subtitle shows the unwatched glyph before the runtime.
+    let watched: Bool
     let queueSection: FilmQueueSection?
     let lane: RecLane
     /// 20…99: how well the film fits the learned taste (not its timing).
@@ -1667,7 +1669,7 @@ nonisolated enum RecommendationEngine {
             return RecPick(
                 id: film.id, name: film.name, year: film.releaseYear, posterUID: film.posterUID,
                 runtimeMinutes: fact.runtime, byline: byline, certification: film.rating, genre: film.genre,
-                synopsis: film.descriptionText, userRating: film.userRating,
+                synopsis: film.descriptionText, userRating: film.userRating, watched: film.watched,
                 queueSection: candidate.queueSection,
                 lane: wildcard ? .wildcard : candidate.lane, match: candidate.match, score: candidate.score,
                 reasons: Array(reasons.prefix(4)))

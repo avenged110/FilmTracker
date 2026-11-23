@@ -106,7 +106,7 @@ public final class DBExporter: Loggable {
     /// to the database by SettingsManager, so they're always current at export time.
     public static var allModelTypes: [any ExportableModel.Type] {
         return [Film.self,  ListObject.self, ListMembership.self, Release.self,
-            ImportSession.self, SettingsObject.self, SavedSearchObject.self] }
+            ImportSession.self, SettingsObject.self, SavedSearchObject.self, FilmLink.self] }
 
     /// The exporter is constructed from the NSPersistentContainer rather than a long-lived
     /// NSManagedObjectContext. A fresh NSManagedObjectContext is created per export inside createBackup so

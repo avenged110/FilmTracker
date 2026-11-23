@@ -166,9 +166,9 @@ final class DBRestorer: Loggable {
         }
     }
 
-    /// Deletes inserted list memberships missing their film or list and releases missing
-    /// their film, and unlinks a release whose parent belongs to another film or has a
-    /// parent of its own. Each is logged.
+    /// Deletes inserted list memberships missing their film or list, releases missing
+    /// their film and film links missing either film, and unlinks a release whose parent
+    /// belongs to another film or has a parent of its own. Each is logged.
     private func repairStructure(in context: NSManagedObjectContext) {
         var removed = 0, unlinked = 0
         for object in context.insertedObjects where !object.isDeleted {
@@ -176,6 +176,8 @@ final class DBRestorer: Loggable {
                 context.delete(membership); removed += 1
             } else if let release = object as? Release, release.film == nil {
                 context.delete(release); removed += 1
+            } else if let link = object as? FilmLink, link.sourceFilm == nil || link.targetFilm == nil {
+                context.delete(link); removed += 1
             }
         }
         for object in context.insertedObjects where !object.isDeleted {
@@ -273,6 +275,10 @@ final class DBRestorer: Loggable {
                     /// Settings are optional - if malformed, just skip
                 }
 
+            case "ListMembership", "Release", "FilmLink":
+                /// Created after this pass, once the films and lists they name exist.
+                break
+
             default:
                 /// Unknown entity type - log and skip (forward compatibility)
                 Self.log("INFO: Skipping unknown entity type '\(obj.entityName)' (ID: \(obj.exportID))")
@@ -312,6 +318,9 @@ final class DBRestorer: Loggable {
                 break
             }
         }
+
+        createFilmLinks(from: backup.objects.filter { $0.entityName == "FilmLink" },
+                        filmByID: filmByID, context: context)
 
         /// Third pass: Link release parent-child hierarchy.
         /// Both the parent and child releases are guaranteed to exist in releaseByID at
@@ -1010,6 +1019,94 @@ final class DBRestorer: Loggable {
         
         context.insert(settings)
         return settings
+    }
+
+    /// One film link read from a backup, before the rules decide whether it is kept.
+    private struct ParsedFilmLink {
+        let exportID: String
+        let id: UUID
+        let kind: String
+        let source: Film
+        let target: Film
+        let dateAdded: Date
+    }
+
+    /// Creates the backup's film links once every film exists. A link naming a film the
+    /// backup does not restore is skipped (counted in one log line); one with a malformed ID
+    /// is logged and skipped. A backup with no links at all (one written before film links
+    /// existed) restores with none. The rest go through FilmLinkRules.sieve oldest first, as the
+    /// launch cleanup does, so a hand-edited or damaged backup restores only links that obey
+    /// the rules (no self-links, one link per pair, no same-kind cycles, no repeated IDs); each
+    /// dropped link is logged.
+    private func createFilmLinks(from objects: [ParsedObject], filmByID: [UUID: Film],
+                                 context: NSManagedObjectContext) {
+        guard !objects.isEmpty else { return }
+        var parsed: [ParsedFilmLink] = []
+        /// Counted, not logged one by one: a backup missing films it links to says so once.
+        var withoutTheirFilms = 0
+        for obj in objects {
+            let props = obj.properties
+            var parser = SafeValueParser(
+                properties: props,
+                entityName: "FilmLink",
+                logMalformed: { [weak self] in self?.logMalformed($0) },
+                recordMissing: { [weak self] in self?.recordMissingField($0) },
+                checkExists: { [weak self] in self?.propertyExists($0, in: props) ?? false }
+            )
+            do {
+                let id = try parser.parseRequiredUUID("id")
+                let sourceID = try parser.parseRequiredRelationshipUUID("sourceFilmID")
+                let targetID = try parser.parseRequiredRelationshipUUID("targetFilmID")
+                let kind = FilmLinkKind.normalized(parser.parseString("kind"))
+                let dateAdded = Self.exactLinkDate(props["dateAddedExact"],
+                                                   matching: parser.parseDate("dateAdded"), exportID: obj.exportID)
+                guard let source = filmByID[sourceID], let target = filmByID[targetID] else {
+                    withoutTheirFilms += 1; continue
+                }
+                parsed.append(ParsedFilmLink(exportID: obj.exportID, id: id, kind: kind,
+                                             source: source, target: target, dateAdded: dateAdded))
+            } catch {
+                Self.log("WARNING: Skipping malformed FilmLink \(obj.exportID): \(error.localizedDescription)")
+            }
+        }
+        if withoutTheirFilms > 0 {
+            Self.log("WARNING: Skipping \(withoutTheirFilms) FilmLink(s) naming a film the backup does not restore")
+        }
+
+        /// Oldest first, so the rules keep what the launch cleanup would. A repeated ID keeps
+        /// its oldest copy that obeys the rules (sieve's `id`), so the store's unique ID
+        /// constraint never meets two.
+        parsed.sort { FilmLinkRules.ordersBefore(($0.dateAdded, $0.id), ($1.dateAdded, $1.id)) }
+        let (kept, rejected) = FilmLinkRules.sieve(parsed, ends: { ($0.source.id, $0.target.id) },
+                                                   kind: \.kind, id: \.id)
+        for (link, reason) in rejected {
+            Self.log("WARNING: Skipping FilmLink \(link.exportID): a link \(reason.rawValue)")
+        }
+        for link in kept {
+            _ = FilmLink(id: link.id, kind: link.kind, source: link.source, target: link.target,
+                         dateAdded: link.dateAdded)
+        }
+        if !kept.isEmpty { Self.log("Restored \(kept.count) film link(s)") }
+    }
+
+    /// A link's exact date (`dateAddedExact`, seconds since 2001) when the backup carries one
+    /// within a second of its whole-second `dateAdded`; otherwise `dateAdded`.
+    /// A backup written before the exact date existed has none, and one whose `dateAdded` was
+    /// edited by hand keeps the edit (logged) rather than a stale exact value.
+    private static func exactLinkDate(_ exact: (any Sendable)?, matching date: Date, exportID: String) -> Date {
+        let seconds: Double? = switch exact {
+        case let value as Double: value
+        case let value as Int64: Double(value)
+        case let value as Int: Double(value)
+        default: nil
+        }
+        guard let seconds, seconds.isFinite else { return date }
+        let precise = Date(timeIntervalSinceReferenceDate: seconds)
+        guard abs(precise.timeIntervalSince(date)) < 1 else {
+            log("NOTE: FilmLink \(exportID): dateAddedExact disagrees with dateAdded; using dateAdded")
+            return date
+        }
+        return precise
     }
 
     private func createListMembership(

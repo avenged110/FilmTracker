@@ -214,6 +214,12 @@ final class Film: LibraryObject {
     // MARK: - Release Relationship
     @NSManaged var releases: Set<Release>
 
+    // MARK: - FilmLink Relationships
+    /// Links this film states ("this film is a sequel of…") and links stated about it. Both
+    /// cascade: deleting the film deletes every link it is part of. See FilmLinkRules.
+    @NSManaged var outgoingLinks: Set<FilmLink>
+    @NSManaged var incomingLinks: Set<FilmLink>
+
     // MARK: - Library Information
     @NSManaged var digitalSource: String /// Composite; see FilmDigitalSource.compose/decompose.
     @NSManaged var digitalVersion: String
@@ -316,6 +322,7 @@ extension Film: ExportableModel {
 
         /// Don't export list membership IDs as a property (handled by ListMembership entities).
         /// Don't export release IDs as a property (handled by Release entities).
+        /// Don't export link IDs as a property (handled by FilmLink entities).
 
         /// No relationship arrays - everything handled via join entities with IDs.
         let rels: [String: [Any]] = [:]

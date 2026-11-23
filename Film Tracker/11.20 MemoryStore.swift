@@ -51,6 +51,38 @@ final class MemoryStore: Loggable {
     }
     private var lists: [UUID: MemoryList] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
     private var filmToLists: [UUID: Set<UUID>] = [:]
+
+    /// Film links by ID (64.10 FilmLinkObj.swift), and the reverse index from each film, at
+    /// either end, to its links.
+    ///
+    /// A link is LIVE while both its films are in `films`; every reader sees only live links.
+    /// Deleting a film leaves its links here, unseen, rather than removing them: if the delete
+    /// fails to persist, the rollback puts the film back and its links are live again exactly
+    /// as the store still holds them, with nothing to restore (even when the film at the other
+    /// end was deleted by a later operation that also fails). DataCoordinator prunes the
+    /// unseen ones once no operation is pending (`pruneDanglingFilmLinks`), when every delete
+    /// has either persisted (the store cascaded the links) or rolled back.
+    ///
+    /// The live links obey FilmLinkRules as loaded (the slow path sieves them as the launch
+    /// cleanup does). While writes are pending they can briefly hold a cycle of one kind (a
+    /// failed delete's rollback reviving links beside an optimistic link the store will then
+    /// refuse, and roll back too), so nothing that walks them may assume they cannot (see
+    /// `linkedFilmIDs`).
+    private var filmLinks: [UUID: FilmLinkSnapshot] = [:] { didSet { contentVersion = Self.nextContentVersion() } }
+    private var filmToLinks: [UUID: Set<UUID>] = [:]
+    /// Set when a link may have stopped being live (a linked film deleted, or a pair set to a
+    /// link whose film is gone), so `pruneDanglingFilmLinks` scans only when there can be
+    /// something to drop. It runs every time the operation queue drains.
+    private var mayHoldDanglingFilmLinks = false
+    /// The live links as one rule graph, with the `contentVersion` it was built at, for
+    /// `filmLinkProblem`: built on the first check after any change, so a picker checking
+    /// every film against the rules reads the links once, not once per film.
+    private var liveFilmLinkGraph: (version: UInt64, graph: FilmLinkRules.Graph)?
+
+    /// Called whenever the set of live links may have changed: a link written or removed, or a
+    /// film that has links deleted or put back. DataCoordinator moves its observed
+    /// `filmLinksRevision` from it, so a view reading links redraws.
+    var filmLinksDidChange: (() -> Void)?
     private(set) var hallOfFameFilms: [UUID] = []
     private var cachedViews: [CacheKey: [FilmSnapshot]] = [:]
     
@@ -86,9 +118,9 @@ final class MemoryStore: Loggable {
     ///   • the Phase 1 store fetch threw (loadFailed above).
     private var cachePersistenceSuspended = false
 
-    /// Identifies the current contents of `films` and `lists`, so MemoryStoreCache can skip a
-    /// save of contents it already wrote. Advanced by the two properties' `didSet`, so no
-    /// mutation path can miss it. `filmToLists` is not persisted and is excluded. The counter is
+    /// Identifies the current contents of `films`, `lists` and `filmLinks`, so MemoryStoreCache
+    /// can skip a save of contents it already wrote. Advanced by the three properties' `didSet`,
+    /// so no mutation path can miss it. `filmToLists` is not persisted and is excluded. The counter is
     /// shared by all instances, so two stores never share a version once mutated.
     private var contentVersion: UInt64 = 0
     /// Moves with every write to `films` (not `lists`), drawn from the same counter as
@@ -122,6 +154,11 @@ final class MemoryStore: Loggable {
     /// A cache hit never sets it: the cache is written from memory, which is always current.
     private(set) var hasLegacyReleaseValues = false
     
+    #if DEBUG
+    /// Which way Phase 1 loaded ("snapshot cache" or "store"), for the harness.
+    private(set) var loadPathForTesting = ""
+    #endif
+
     /// Direct film count without array allocation.
     var totalFilmCount: Int { films.count }
     
@@ -169,19 +206,25 @@ final class MemoryStore: Loggable {
         let cacheResult = await MemoryStoreCache.shared.load(dataManager: dataManager)
 
         switch cacheResult {
-        case .hit(let films, let lists, let filmToLists):
+        case .hit(let films, let lists, let filmToLists, let links):
             self.films = films
             self.lists = lists
             self.filmToLists = filmToLists
+            self.filmLinks = links
+            self.rebuildFilmLinkIndex()
             /// The loaded dictionaries match the file, so a save before any change has nothing to write.
             MemoryStoreCache.shared.recordOnDisk(contentVersion: contentVersion)
+            #if DEBUG
+            loadPathForTesting = "snapshot cache"
+            #endif
             self.sortedListsCache = nil
             self.rebuildHallOfFame()
             /// No payload is pushed to MemoryStoreCache here: each flush reads the dictionaries when
             /// it runs (see flushCaches). Holding an extra reference would make the first film edit
             /// copy the whole dictionary.
             let duration = Date().timeIntervalSince(startTime)
-            Self.log("Phase 1 fast-path: \(self.films.count) films from snapshot cache in \(Fmt.fixed(duration, 2))s")
+            Self.log("Phase 1 fast-path: \(self.films.count) films, \(self.filmLinks.count) film link(s) from snapshot cache in \(Fmt.fixed(duration, 2))s")
+            filmLinksDidChange?()
 
         case .miss:
             /// Slow path: full store fetch and snapshot conversion. Runs on first launch, or when the
@@ -189,13 +232,22 @@ final class MemoryStore: Loggable {
             Self.log("Phase 1 slow-path: snapshot cache miss, reading the store...")
             LaunchReveal.shared.snapshotMissed()
             self.snapshotCacheNeedsRebuild = true
+            #if DEBUG
+            loadPathForTesting = "store"
+            #endif
             do {
                 let loadedData = try await loadAllDataFromStore(persistentContainer: persistentContainer)
                 self.films = loadedData.films
                 self.lists = loadedData.lists
                 self.filmToLists = loadedData.filmToLists
+                self.filmLinks = loadedData.links
+                self.rebuildFilmLinkIndex()
                 self.sortedListsCache = nil
                 self.rebuildHallOfFame()
+                if loadedData.rejectedLinkCount > 0 {
+                    Self.log("Left out \(loadedData.rejectedLinkCount) film link(s) breaking FilmLinkRules — the launch cleanup removes them from the store")
+                }
+                filmLinksDidChange?()
             } catch {
                 /// The dictionaries stay empty. Mark the store non-authoritative: suspend derived-cache
                 /// writes immediately, so none can be scheduled, and DataCoordinator skips post-startup
@@ -354,7 +406,24 @@ final class MemoryStore: Loggable {
                 }
             }
 
-            return (LoadedData(films: filmDict, lists: listDict, filmToLists: filmToListsDict),
+            /// Links with both films prefetched. Sieved oldest first exactly as the launch cleanup
+            /// sieves the store (DataManager.cleanupFilmLinks), so memory holds the links that
+            /// cleanup keeps and never one it removes. Orphans are rejected by the sieve too.
+            let linkDescriptor = FilmLink.request()
+            linkDescriptor.relationshipKeyPathsForPrefetching = ["sourceFilm", "targetFilm"]
+            let storedLinks = try context.fetch(linkDescriptor).sorted {
+                FilmLinkRules.ordersBefore(($0.dateAdded, $0.id), ($1.dateAdded, $1.id))
+            }
+            let (keptLinks, rejectedLinks) = FilmLinkRules.sieve(storedLinks, ends: { link in
+                guard let s = link.sourceFilm?.id, let t = link.targetFilm?.id,
+                      filmDict[s] != nil, filmDict[t] != nil else { return nil }
+                return (s, t)
+            }, kind: \.kind)
+            var linkDict: [UUID: FilmLinkSnapshot] = [:]
+            for link in keptLinks { if let snapshot = link.snapshot { linkDict[snapshot.id] = snapshot } }
+
+            return (LoadedData(films: filmDict, lists: listDict, filmToLists: filmToListsDict,
+                               links: linkDict, rejectedLinkCount: rejectedLinks.count),
                     sawLegacyValues)
         }
         if loaded.1 { hasLegacyReleaseValues = true }
@@ -365,6 +434,8 @@ final class MemoryStore: Loggable {
         let films: [UUID: FilmSnapshot]
         let lists: [UUID: MemoryList]
         let filmToLists: [UUID: Set<UUID>]
+        let links: [UUID: FilmLinkSnapshot]
+        let rejectedLinkCount: Int
     }
     
     /// Throttled save of both derived caches: MetadataCache (sort and search data) and
@@ -401,6 +472,10 @@ final class MemoryStore: Loggable {
         /// it is not persisted (the cache rebuilds it from `lists` on load).
         let filmsPayload = films
         let listsPayload = lists
+        /// Live links only, so the payload never names a film it does not hold. A link left by a
+        /// delete that is still pending is not written; if the delete rolls back, the version
+        /// moves (the film comes back) and the next save writes it.
+        let linksPayload = allFilmLinks()
         /// Read in the same synchronous step as the payload it names (see contentVersion).
         let payloadVersion = contentVersion
 
@@ -409,7 +484,7 @@ final class MemoryStore: Loggable {
         /// and waits for that ID only to write its small fingerprint file.
         let metadataSave = Task { await MetadataCache.shared.save() }
         await MemoryStoreCache.shared.save(
-            films: filmsPayload, lists: listsPayload, contentVersion: payloadVersion,
+            films: filmsPayload, lists: listsPayload, links: linksPayload, contentVersion: payloadVersion,
             metadataFileID: metadataSave)
         _ = await metadataSave.value
     }
@@ -665,6 +740,8 @@ final class MemoryStore: Loggable {
         if snapshot.hofPosition > 0 {
             rebuildHallOfFame()
         }
+        /// A film put back (a rollback) makes its links live again.
+        if filmToLinks[snapshot.id] != nil { filmLinksDidChange?() }
         scheduleThrottledSave()
         Self.log("Added film: \(snapshot.name)")
     }
@@ -683,6 +760,8 @@ final class MemoryStore: Loggable {
         MetadataCache.shared.updateFilms(snapshots)
         invalidateCacheForAllFilms()
         if ranked { rebuildHallOfFame() }
+        /// Films put back (a rollback) make their links live again.
+        if snapshots.contains(where: { filmToLinks[$0.id] != nil }) { filmLinksDidChange?() }
         scheduleThrottledSave()
         Self.log("Added \(snapshots.count) film(s)")
     }
@@ -903,6 +982,12 @@ final class MemoryStore: Loggable {
         if !affectedLists.isEmpty {
             sortedListsCache = nil
         }
+        /// The deleted films' links stay in `filmLinks`, unseen (see there), so a rollback that
+        /// puts the films back finds them as the store still holds them.
+        if ids.contains(where: { filmToLinks[$0] != nil }) {
+            mayHoldDanglingFilmLinks = true
+            filmLinksDidChange?()
+        }
         
         scheduleThrottledSave()
         Self.log("Deleted \(ids.count) film(s) from \(affectedLists.count) affected list(s)")
@@ -1058,6 +1143,178 @@ final class MemoryStore: Loggable {
         Self.log("Restored list: \(list.listName)")
     }
     
+    // MARK: - Film Links
+
+    /// Whether both of the link's films are in the library (see `filmLinks`).
+    private func isLive(_ link: FilmLinkSnapshot) -> Bool {
+        films[link.sourceID] != nil && films[link.targetID] != nil
+    }
+
+    /// Every live link, oldest first (FilmLinkRules.ordersBefore), so the order never changes
+    /// between calls.
+    func allFilmLinks() -> [FilmLinkSnapshot] {
+        filmLinks.values.filter(isLive).sorted {
+            FilmLinkRules.ordersBefore(($0.dateAdded, $0.id), ($1.dateAdded, $1.id))
+        }
+    }
+
+    /// Every link held, live or not (see `filmLinks`), in no particular order: for bringing
+    /// memory into line with the store, which still holds a deleted film's links until its
+    /// delete persists.
+    func heldFilmLinks() -> [FilmLinkSnapshot] { Array(filmLinks.values) }
+
+    /// How many live links the library holds.
+    var filmLinkCount: Int { filmLinks.values.reduce(0) { isLive($1) ? $0 + 1 : $0 } }
+
+    /// The live links `filmID` is part of, read from its side, in FilmLinkRelation order.
+    /// Empty for a film not in the library.
+    func filmLinkRelations(forFilm filmID: UUID) -> [FilmLinkRelation] {
+        guard films[filmID] != nil, let ids = filmToLinks[filmID] else { return [] }
+        return ids.compactMap { filmLinks[$0] }
+            .filter(isLive)
+            .map { FilmLinkRelation(link: $0, filmID: filmID) }
+            .sorted(by: FilmLinkRelation.orderedBefore)
+    }
+
+    /// The live link with this ID, or nil.
+    func filmLink(id: UUID) -> FilmLinkSnapshot? {
+        filmLinks[id].flatMap { isLive($0) ? $0 : nil }
+    }
+
+    /// The live link between two films, whichever way it points, or nil.
+    func filmLink(between a: UUID, and b: UUID) -> FilmLinkSnapshot? {
+        guard a != b else { return nil }
+        let pair = FilmLinkRules.Pair(a, b)
+        return linksOnPair(pair).first(where: isLive)
+    }
+
+    /// Every film reachable from `filmID` through live links of any kind, in either direction,
+    /// `filmID` itself excluded: the films a "related films" view groups together. Walks with
+    /// a visited set, so a cycle (only ever transient; see `filmLinks`) cannot loop it.
+    func linkedFilmIDs(connectedTo filmID: UUID) -> Set<UUID> {
+        guard films[filmID] != nil else { return [] }
+        var seen: Set<UUID> = [filmID]
+        var stack = [filmID]
+        while let film = stack.popLast() {
+            for linkID in filmToLinks[film] ?? [] {
+                guard let link = filmLinks[linkID], isLive(link) else { continue }
+                let other = link.sourceID == film ? link.targetID : link.sourceID
+                if seen.insert(other).inserted { stack.append(other) }
+            }
+        }
+        seen.remove(filmID)
+        return seen
+    }
+
+    /// Why "source is a `kind` of target" cannot be recorded, or nil when it can: FilmLinkRules
+    /// 1–3 and both films present, judged against the live links with any link already on the
+    /// pair left out (setting a linked pair replaces its link). The same test DataManager runs
+    /// against the store, so a UI can refuse a choice before anything is written. Cheap enough
+    /// to ask for every film in a picker: the graph is built once per change (see
+    /// `liveFilmLinkGraph`), and each check walks only the chain the target starts.
+    func filmLinkProblem(source sourceID: UUID, target targetID: UUID, kind rawKind: String) -> FilmLinkError? {
+        let kind = FilmLinkKind.normalized(rawKind)
+        if kind.isEmpty { return .emptyKind }
+        if sourceID == targetID { return .selfLink }
+        if films[sourceID] == nil { return .filmNotFound(sourceID) }
+        if films[targetID] == nil { return .filmNotFound(targetID) }
+        let graph: FilmLinkRules.Graph
+        if let cached = liveFilmLinkGraph, cached.version == contentVersion {
+            graph = cached.graph
+        } else {
+            graph = FilmLinkRules.Graph(filmLinks.values.filter(isLive).map(\.edge))
+            liveFilmLinkGraph = (contentVersion, graph)
+        }
+        /// The graph holds the pair's own link too; closesCycle leaves it out.
+        return graph.closesCycle(source: sourceID, target: targetID, kind: kind) ? .cycle : nil
+    }
+
+    /// Every link on `pair` (normally at most one), live or not.
+    func linksOnPair(_ pair: FilmLinkRules.Pair) -> [FilmLinkSnapshot] {
+        (filmToLinks[pair.low] ?? []).compactMap { id in
+            filmLinks[id].flatMap { $0.pair == pair ? $0 : nil }
+        }
+    }
+
+    /// Makes `pair` hold exactly `links` (normally one link, or none to clear it): every link on
+    /// the pair is removed, and so is any link with one of the new links' IDs wherever it sits,
+    /// then `links` are stored. The one write path for links in memory, mirroring
+    /// DataManager.saveFilmLink and removeFilmLinks(between:). Returns what it removed. The
+    /// caller checks the rules first (`filmLinkProblem`); this does not, so a rollback can put
+    /// back exactly what was there.
+    @discardableResult
+    func setFilmLinks(onPair pair: FilmLinkRules.Pair, to links: [FilmLinkSnapshot]) -> [FilmLinkSnapshot] {
+        assert(links.allSatisfy { $0.pair == pair }, "every link must be on the pair")
+        let newIDs = Set(links.map(\.id))
+        let doomed = Set(linksOnPair(pair).map(\.id)).union(newIDs.filter { filmLinks[$0] != nil })
+        let removed = doomed.compactMap { filmLinks[$0] }
+        if removed.isEmpty, links.isEmpty { return [] }
+        for id in doomed { removeFromLinkIndex(id) }
+        for id in doomed { filmLinks.removeValue(forKey: id) }
+        for link in links {
+            filmLinks[link.id] = link
+            filmToLinks[link.sourceID, default: []].insert(link.id)
+            filmToLinks[link.targetID, default: []].insert(link.id)
+            if !isLive(link) { mayHoldDanglingFilmLinks = true }
+        }
+        filmLinksDidChange?()
+        scheduleThrottledSave()
+        Self.log("Film links on a pair: removed \(removed.count), stored \(links.count)")
+        return removed
+    }
+
+    /// Removes the links with these IDs (the launch cleanup's removals). Returns what it removed.
+    @discardableResult
+    func removeFilmLinks(ids: Set<UUID>) -> [FilmLinkSnapshot] {
+        let removed = ids.compactMap { filmLinks[$0] }
+        guard !removed.isEmpty else { return [] }
+        for link in removed {
+            removeFromLinkIndex(link.id)
+            filmLinks.removeValue(forKey: link.id)
+        }
+        filmLinksDidChange?()
+        scheduleThrottledSave()
+        Self.log("Removed \(removed.count) film link(s)")
+        return removed
+    }
+
+    /// Drops the links that are no longer live (a film at either end deleted). For
+    /// DataCoordinator to call once no operation is pending (see `filmLinks`). Returns how many.
+    /// No reader saw them, so nothing is announced, and nothing is saved: the payload never
+    /// included them.
+    @discardableResult
+    func pruneDanglingFilmLinks() -> Int {
+        guard mayHoldDanglingFilmLinks else { return 0 }
+        mayHoldDanglingFilmLinks = false
+        let dangling = filmLinks.values.filter { !isLive($0) }
+        guard !dangling.isEmpty else { return 0 }
+        for link in dangling {
+            removeFromLinkIndex(link.id)
+            filmLinks.removeValue(forKey: link.id)
+        }
+        Self.log("Pruned \(dangling.count) film link(s) of deleted films")
+        return dangling.count
+    }
+
+    /// Removes one link from `filmToLinks` (both ends), leaving `filmLinks` to the caller.
+    private func removeFromLinkIndex(_ id: UUID) {
+        guard let link = filmLinks[id] else { return }
+        for end in [link.sourceID, link.targetID] {
+            filmToLinks[end]?.remove(id)
+            if filmToLinks[end]?.isEmpty == true { filmToLinks.removeValue(forKey: end) }
+        }
+    }
+
+    /// Rebuilds `filmToLinks` from `filmLinks`, after a load.
+    private func rebuildFilmLinkIndex() {
+        var index: [UUID: Set<UUID>] = [:]
+        for link in filmLinks.values {
+            index[link.sourceID, default: []].insert(link.id)
+            index[link.targetID, default: []].insert(link.id)
+        }
+        filmToLinks = index
+    }
+
     // MARK: - Cache Invalidation
     
     private func invalidateCacheForAllFilms() {
@@ -1398,10 +1655,14 @@ final class MemoryStore: Loggable {
     /// result depends only on the snapshots passed in. Every code path is the production one.
     /// Cache persistence is suspended so the real cache files are never written, and the load
     /// flags are set so `getFilms` answers queries.
-    static func isolatedForTesting(films: [FilmSnapshot], lists: [MemoryList]) -> MemoryStore {
+    static func isolatedForTesting(films: [FilmSnapshot], lists: [MemoryList],
+                                   links: [FilmLinkSnapshot] = []) -> MemoryStore {
         let store = MemoryStore()
         store.cachePersistenceSuspended = true
         for film in films { store.films[film.id] = film }
+        for link in links { store.filmLinks[link.id] = link }
+        store.rebuildFilmLinkIndex()
+        store.mayHoldDanglingFilmLinks = true
         for list in lists {
             store.lists[list.listID] = list
             for filmID in list.filmIDs {
@@ -1422,6 +1683,11 @@ final class MemoryStore: Loggable {
     /// The reverse index, exposed so a scenario can assert it against `lists[].filmIDs`
     /// rather than inferring its health from behavior that happens to look right.
     var filmToListsForTesting: [UUID: Set<UUID>] { filmToLists }
+
+    /// Every link held, unseen ones included (see `filmLinks`), and the reverse index, so a
+    /// scenario can assert both against each other and against the store.
+    var filmLinksForTesting: [UUID: FilmLinkSnapshot] { filmLinks }
+    var filmToLinksForTesting: [UUID: Set<UUID>] { filmToLinks }
 
     /// The number of live entries in the view cache. Reported as a metric so unbounded
     /// growth is visible as a number rather than only as a slow leak.

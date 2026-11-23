@@ -176,7 +176,7 @@ struct Preferences: Loggable {
     /// Sidebar menu item, and the view itself. `false` leaves the app exactly as it was, with
     /// no trace of the view; nothing reads or writes the experiment's stored state either.
     /// Implemented in 29.50 RecommendationsView.swift and 29.51 RecommendationEngine.swift.
-    static let recommendationsExperiment = false
+    static let recommendationsExperiment = true
 
     // MARK: - Centralized Internal Constants
     /// Gallery items

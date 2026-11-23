@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import Observation
+import os
 
 // MARK: - View Membership
 
@@ -113,11 +114,21 @@ enum DebugPersistenceFault {
     static var mode: Mode = .none
     static var injectedCount = 0
 
+    /// Per-operation failures, for a case that needs one operation to fail and the next to
+    /// succeed: each operation, as its work starts (in dispatch order), takes the first entry;
+    /// true fails it before its work, as `.beforeWork` would. Empty means `mode` decides.
+    static var failurePlan: [Bool] = []
+
+    /// Takes the next planned outcome: whether this operation is to fail.
+    static func takePlannedFailure() -> Bool {
+        failurePlan.isEmpty ? false : failurePlan.removeFirst()
+    }
+
     struct Injected: Error, LocalizedError {
         var errorDescription: String? { "Injected persistence failure (debug harness)" }
     }
 
-    static func reset() { mode = .none; injectedCount = 0 }
+    static func reset() { mode = .none; injectedCount = 0; failurePlan = [] }
 }
 #endif
 
@@ -359,8 +370,17 @@ final class DataCoordinator: Loggable {
     /// `work` is @Sendable so a closure literal passed here is nonisolated rather than
     /// inheriting MainActor from the call site; anything it needs from MainActor it must
     /// capture as a value or reach with `await`.
+    ///
+    /// `settled`, when given, runs on MainActor once the operation has finished: with true
+    /// after the work succeeded, with false after the rollback. It runs before the next
+    /// operation starts, like the rollback.
+    ///
+    /// `reportsFailure` false keeps a failure out of the persistence alert (it is still
+    /// logged), for maintenance the user did not ask for.
     private func trackOperation(
         rollback: (() -> Void)? = nil,
+        settled: ((_ succeeded: Bool) -> Void)? = nil,
+        reportsFailure: Bool = true,
         _ work: @escaping @Sendable () async throws -> Void
     ) {
         /// Drop new work once shutdown has been initiated (logged). Any in-flight
@@ -376,14 +396,19 @@ final class DataCoordinator: Loggable {
         let predecessor = lastTrackedOperation
         lastTrackedOperation = Task(priority: .background) { [weak self] in
             defer {
-                if let self { self.pendingOperationCount = max(0, self.pendingOperationCount - 1) }
+                if let self {
+                    self.pendingOperationCount = max(0, self.pendingOperationCount - 1)
+                    /// Nothing pending: every film delete has persisted or rolled back, so a
+                    /// link whose film is gone is gone from the store too (MemoryStore.filmLinks).
+                    if self.pendingOperationCount == 0 { self.memoryStore.pruneDanglingFilmLinks() }
+                }
             }
             /// Wait for the previously dispatched operation to finish (success or rollback)
             /// before starting this one. Returns immediately if it already has.
             await predecessor?.value
             do {
                 #if DEBUG
-                if DebugPersistenceFault.mode == .beforeWork {
+                if DebugPersistenceFault.takePlannedFailure() || DebugPersistenceFault.mode == .beforeWork {
                     DebugPersistenceFault.injectedCount += 1
                     throw DebugPersistenceFault.Injected()
                 }
@@ -395,14 +420,18 @@ final class DataCoordinator: Loggable {
                 #else
                 try await work()
                 #endif
+                settled?(true)
             } catch {
                 Self.log("ERROR: Background persistence failed: \(error)")
                 /// Task(priority:) inherits @MainActor from trackOperation; execution resumes
                 /// on MainActor after the 'await work()' suspension, so MainActor.run is
                 /// redundant here. rollback and sendAlert are both @MainActor-isolated.
                 rollback?()
-                AppEventBus.shared.sendAlert(.showPersistenceFailure(
-                    error: AlertErrorDetail.full(error)))
+                settled?(false)
+                if reportsFailure {
+                    AppEventBus.shared.sendAlert(.showPersistenceFailure(
+                        error: AlertErrorDetail.full(error)))
+                }
             } } }
 
     // MARK: - Current View State
@@ -527,6 +556,8 @@ final class DataCoordinator: Loggable {
         if usingFallbackStore {
             memoryStore.suspendCachePersistence(reason: "running against the in-memory fallback container")
         }
+        /// Every change to the live links, whatever caused it, moves the observed revision.
+        memoryStore.filmLinksDidChange = { [weak self] in self?.filmLinksRevision &+= 1 }
         Self.log("DataCoordinator initialized\(usingFallbackStore ? " (in-memory fallback container)" : "")") }
 
     /// STARTUP: Initialization is split into two phases so that the
@@ -3414,6 +3445,169 @@ final class DataCoordinator: Loggable {
             Self.log("Membership cleanup canceled (shutdown) — will re-run next launch")
         } catch {
             Self.log("ERROR: Membership cleanup failed: \(error)")
+        }
+    }
+
+    /// Removes film links that break FilmLinkRules (orphans, self-links, a second link on one
+    /// pair, same-kind cycles) at startup, in DataManager's background context. Normally finds
+    /// nothing: every writer enforces the rules, and this repairs what a damaged store or the
+    /// pre-migration ID repair (StoreDeduplicator) left.
+    ///
+    /// Runs as a tracked operation, in the same queue as every link write, so no write's work
+    /// can land between the cleanup's commit and memory being brought into line with it (see
+    /// syncFilmLinks(withStore:)). A failure is logged, not alerted: the pass re-runs next
+    /// launch. Returns once it has run.
+    func cleanupFilmLinks() async {
+        let outcome = OSAllocatedUnfairLock<DataManager.FilmLinkCleanup?>(initialState: nil)
+        trackOperation(settled: { [weak self] succeeded in
+            guard let self, succeeded, let removed = outcome.withLock({ $0 }) else { return }
+            for (reason, count) in removed.counts.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
+                Self.log("Cleaned up \(count) film link(s) \(reason.rawValue) (background)")
+            }
+            guard !removed.removedIDs.isEmpty else { return }
+            self.syncFilmLinks(withStore: removed.kept)
+        }, reportsFailure: false) { [dataManager] in
+            let removed = try await dataManager.cleanupFilmLinks()
+            outcome.withLock { $0 = removed }
+        }
+        await lastTrackedOperation?.value
+    }
+
+    // MARK: - Film Links
+
+    /// Moves whenever the live film links may have changed (MemoryStore.filmLinksDidChange):
+    /// a link written, removed, reverted after a failed write or removed by the launch cleanup,
+    /// or a linked film deleted or put back. Every link accessor below reads it, so a view
+    /// that shows links redraws when they change.
+    private(set) var filmLinksRevision = 0
+
+    /// Every live link, oldest first.
+    func allFilmLinks() -> [FilmLinkSnapshot] {
+        _ = filmLinksRevision
+        return memoryStore.allFilmLinks()
+    }
+
+    /// The links `filmID` is part of, read from its side (FilmLinkRelation order).
+    func filmLinkRelations(forFilm filmID: UUID) -> [FilmLinkRelation] {
+        _ = filmLinksRevision
+        return memoryStore.filmLinkRelations(forFilm: filmID)
+    }
+
+    /// The link between two films, whichever way it points, or nil.
+    func filmLink(between a: UUID, and b: UUID) -> FilmLinkSnapshot? {
+        _ = filmLinksRevision
+        return memoryStore.filmLink(between: a, and: b)
+    }
+
+    /// Every film linked to `filmID` directly or through other linked films, any kind.
+    func linkedFilmIDs(connectedTo filmID: UUID) -> Set<UUID> {
+        _ = filmLinksRevision
+        return memoryStore.linkedFilmIDs(connectedTo: filmID)
+    }
+
+    /// Why `setFilmLink` would refuse this link, or nil when it would record it.
+    func filmLinkProblem(source: UUID, target: UUID, kind: String) -> FilmLinkError? {
+        _ = filmLinksRevision
+        return memoryStore.filmLinkProblem(source: source, target: target, kind: kind)
+    }
+
+    /// Writes awaiting persistence on each pair: how many, and what the store held on the pair
+    /// before the first of them (then after the latest that succeeded). See writeFilmLinkPair.
+    private struct PendingPairWrites {
+        var count: Int
+        var committed: [FilmLinkSnapshot]
+    }
+    @ObservationIgnored private var pendingLinkPairs: [FilmLinkRules.Pair: PendingPairWrites] = [:]
+
+    /// Records "source is a `kind` of target", replacing whatever link the pair had (its ID and
+    /// date are kept, so a rewrite stays the same link). Applied to memory at once and persisted
+    /// in the background. Throws the rule it would break (FilmLinkError), changing nothing. A
+    /// link identical to the one the pair holds changes nothing and writes nothing.
+    @discardableResult
+    func setFilmLink(source: UUID, target: UUID, kind rawKind: String) throws(FilmLinkError) -> FilmLinkSnapshot {
+        if let problem = memoryStore.filmLinkProblem(source: source, target: target, kind: rawKind) { throw problem }
+        let pair = FilmLinkRules.Pair(source, target)
+        let existing = memoryStore.filmLink(between: source, and: target)
+        /// Stored trimmed, as DataManager stores it, so memory and the store hold one string.
+        let desired = FilmLinkSnapshot(id: existing?.id ?? UUID(), kind: FilmLinkKind.normalized(rawKind),
+                                       sourceID: source, targetID: target,
+                                       dateAdded: existing?.dateAdded ?? Date())
+        if memoryStore.linksOnPair(pair) == [desired] { return desired }
+        writeFilmLinkPair(pair, to: [desired]) { [dataManager] in try await dataManager.saveFilmLink(desired) }
+        Self.log("Set film link \(source) → \(target) as \(desired.kind)")
+        return desired
+    }
+
+    /// Removes the link between two films, whichever way it points. Returns the link removed,
+    /// or nil when the pair had none.
+    @discardableResult
+    func removeFilmLink(between a: UUID, and b: UUID) -> FilmLinkSnapshot? {
+        guard let existing = memoryStore.filmLink(between: a, and: b) else { return nil }
+        writeFilmLinkPair(existing.pair, to: []) { [dataManager] in
+            try await dataManager.removeFilmLinks(between: a, and: b)
+        }
+        Self.log("Removed film link \(existing.sourceID) → \(existing.targetID)")
+        return existing
+    }
+
+    /// Removes the link with this ID. Returns it, or nil when there is none.
+    @discardableResult
+    func removeFilmLink(id: UUID) -> FilmLinkSnapshot? {
+        guard let link = memoryStore.filmLink(id: id) else { return nil }
+        return removeFilmLink(between: link.sourceID, and: link.targetID)
+    }
+
+    /// Sets `pair` to `links` in memory now and persists it with `work`, a write that makes the
+    /// store's pair hold exactly `links` (DataManager.saveFilmLink, removeFilmLinks(between:)).
+    ///
+    /// Why not a per-write rollback: each write states the pair's whole content, so a failed
+    /// write must not undo the pair to what it held before that write when a later write to the
+    /// same pair is still pending (memory shows the later one, and it may yet succeed), and
+    /// when it is the last, the pair must go back to what the STORE holds, which is not the
+    /// earlier write's value if that one failed too. So each pair keeps, while any write to it
+    /// is pending, the content last known to be stored; when its last pending write settles,
+    /// memory is set to that content (already what it shows when that write succeeded).
+    private func writeFilmLinkPair(_ pair: FilmLinkRules.Pair, to links: [FilmLinkSnapshot],
+                                   _ work: @escaping @Sendable () async throws -> Void) {
+        if pendingLinkPairs[pair] == nil {
+            pendingLinkPairs[pair] = PendingPairWrites(count: 0, committed: memoryStore.linksOnPair(pair))
+        }
+        pendingLinkPairs[pair]?.count += 1
+        memoryStore.setFilmLinks(onPair: pair, to: links)
+        trackOperation(settled: { [weak self] succeeded in
+            guard let self, var entry = self.pendingLinkPairs[pair] else { return }
+            entry.count -= 1
+            if succeeded { entry.committed = links }
+            guard entry.count == 0 else { self.pendingLinkPairs[pair] = entry; return }
+            self.pendingLinkPairs[pair] = nil
+            if Set(self.memoryStore.linksOnPair(pair)) != Set(entry.committed) {
+                self.memoryStore.setFilmLinks(onPair: pair, to: entry.committed)
+                Self.log("Film link pair set back to what the store holds (\(entry.committed.count) link(s))")
+            }
+        }, work)
+    }
+
+    /// Makes memory's links match `stored`, every link the store holds, after the launch cleanup
+    /// removed some. Memory loaded without them (the slow path sieves as the cleanup does, and
+    /// a snapshot cache holding one would not have matched the store's fingerprint), so this
+    /// normally changes nothing. Runs in the cleanup's `settled`, so every earlier write has
+    /// settled and no later one has started: a pair with a later write pending keeps the value
+    /// memory shows for it, and only learns what the store now holds should that write fail.
+    private func syncFilmLinks(withStore stored: [FilmLinkSnapshot]) {
+        let storedByPair = Dictionary(grouping: stored, by: \.pair)
+        let heldPairs = Set(memoryStore.heldFilmLinks().map(\.pair))
+        var changed = 0
+        for pair in heldPairs.union(storedByPair.keys) {
+            let truth = storedByPair[pair] ?? []
+            if pendingLinkPairs[pair] != nil {
+                pendingLinkPairs[pair]?.committed = truth
+            } else if Set(memoryStore.linksOnPair(pair)) != Set(truth) {
+                memoryStore.setFilmLinks(onPair: pair, to: truth)
+                changed += 1
+            }
+        }
+        if changed > 0 {
+            Self.log("WARNING: Memory differed from the store on \(changed) film link pair(s) after the cleanup — brought into line")
         }
     }
 

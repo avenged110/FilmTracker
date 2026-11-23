@@ -621,8 +621,14 @@ struct WatchDetails: View, Loggable {
             totalDays += abs(days)
         }
 
+        /// Shown on the Viewing History table's "Since Prior" scale (days, weeks, months, years), laid back
+        /// from the latest viewing so months and years follow the real calendar.
         let average = totalDays / (sortedDates.count - 1)
-        return Fmt.count(average, "day")
+        let latest = sortedDates[0]
+        guard let start = calendar.date(byAdding: .day, value: -average, to: latest) else {
+            return Fmt.count(average, "day")
+        }
+        return formatSincePrior(from: start, to: latest, calendar: calendar)
     }
     
     /// Renders the Duration field from the cached display strings.

@@ -55,7 +55,7 @@ extension DebugHarness {
     static var storeScenarios: [String] {
         ["store-invariants", "store-hall-of-fame", "store-queue", "store-coordinator",
          "store-snapshot-mapping", "store-fingerprint", "settings-sync-order",
-         "imports-delete-all-queued", "bulk-edit-check"]
+         "imports-delete-all-queued", "bulk-edit-check", "film-links", "film-links-memory"]
     }
 
     /// Dispatch hook called by `DebugHarness.run(_:coordinator:)` before its own switch.

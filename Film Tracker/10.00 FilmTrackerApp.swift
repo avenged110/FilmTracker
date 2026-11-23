@@ -1123,6 +1123,11 @@ final class AppState: Loggable {
         /// Orphaned and duplicate membership cleanup runs entirely in DataManager's
         /// background actor.
         await coordinator.cleanupOrphanedAndDuplicateMemberships()
+
+        guard !Task.isCancelled else { return }
+
+        /// Film links that break FilmLinkRules, in the same background actor.
+        await coordinator.cleanupFilmLinks()
     }
 }
 

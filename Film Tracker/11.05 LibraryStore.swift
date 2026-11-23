@@ -112,16 +112,20 @@ enum LibraryStore: Loggable {
 /// migrated needs only catalog reads), and changes nothing unless one of them repeats an ID. Works in SQL on the store's own tables, before Core Data opens it: the
 /// old schema's model no longer exists in this build. The first row of each ID (lowest Z_PK) is kept, and every reference to a removed row is
 /// moved to the kept one first, so nothing is left pointing at a deleted row. A (film, list)
-/// pair this leaves twice is removed by DataManager.cleanupOrphanedAndDuplicateMemberships.
+/// pair this leaves twice is removed by DataManager.cleanupOrphanedAndDuplicateMemberships, and
+/// a film link it turns into a self-link or a second link on one pair by
+/// DataManager.cleanupFilmLinks.
 enum StoreDeduplicator: Loggable {
     nonisolated static let logTag = "[StoreDeduplicator]"
 
     /// Table, ID column, and the (table, column) pairs that reference its rows.
     private static let keys: [(table: String, column: String, references: [(String, String)])] = [
-        ("ZFILM", "ZID", [("ZRELEASE", "ZFILM"), ("ZLISTMEMBERSHIP", "ZFILM")]),
+        ("ZFILM", "ZID", [("ZRELEASE", "ZFILM"), ("ZLISTMEMBERSHIP", "ZFILM"),
+                          ("ZFILMLINK", "ZSOURCEFILM"), ("ZFILMLINK", "ZTARGETFILM")]),
         ("ZLISTOBJECT", "ZLISTID", [("ZLISTMEMBERSHIP", "ZLIST")]),
         ("ZRELEASE", "ZID", [("ZRELEASE", "ZPARENTRELEASE")]),
         ("ZLISTMEMBERSHIP", "ZID", []),
+        ("ZFILMLINK", "ZID", []),
         ("ZIMPORTSESSION", "ZID", []),
         ("ZSAVEDSEARCHOBJECT", "ZSEARCHID", []),
         ("ZSETTINGSOBJECT", "ZSNAPSHOTID", []),
@@ -248,7 +252,8 @@ enum PendingRestore: Loggable {
     static var stagedStoreURL: URL? { folderURL?.appendingPathComponent("FilmTracker-restore.sqlite") }
     /// Where the swap keeps the library it replaced: the most recent one only.
     static var rollbackStoreURL: URL? { folderURL?.appendingPathComponent("FilmTracker-pre-restore.sqlite") }
-    private static var markerURL: URL? { folderURL?.appendingPathComponent("FilmTracker.pending-restore") }
+    /// Internal, not private, for the harness: it stages a restore the way an older build would.
+    static var markerURL: URL? { folderURL?.appendingPathComponent("FilmTracker.pending-restore") }
     /// Where a restore stages the backup's posters. They move into the posters folder only
     /// once the swap has succeeded (see `applyRestoredExtras`).
     static var stagedPostersURL: URL? { folderURL?.appendingPathComponent("FilmTracker-restore-Posters", isDirectory: true) }
@@ -633,8 +638,9 @@ enum PendingRestore: Loggable {
 /// to-one sides, so they are covered without being read.
 ///
 /// Also reports structural problems no valid library has: a membership without its film
-/// or list, a release without its film, and a release hierarchy that crosses films or runs
-/// deeper than one level.
+/// or list, a release without its film, a release hierarchy that crosses films or runs
+/// deeper than one level, and a film link without both films, linking a film to itself, or
+/// sharing its pair of films with another link (FilmLinkRules).
 enum StoreInspection {
     struct Report {
         var digest: [String: String]
@@ -753,6 +759,20 @@ enum StoreInspection {
             child == parent || parentOf[parent] != nil || filmOf[child] == nil || filmOf[child] != filmOf[parent]
         }.count
         if badLinks > 0 { problems.append("\(badLinks) release link(s) across films or deeper than one level") }
+
+        var orphanFilmLinks = 0, selfFilmLinks = 0, repeatedFilmLinks = 0
+        var filmLinkPairs: Set<Set<NSManagedObjectID>> = []
+        for link in rows["FilmLink"] ?? [] {
+            guard let source = link.objectIDs(forRelationshipNamed: "sourceFilm").first,
+                  let target = link.objectIDs(forRelationshipNamed: "targetFilm").first else {
+                orphanFilmLinks += 1; continue
+            }
+            if source == target { selfFilmLinks += 1 }
+            else if !filmLinkPairs.insert([source, target]).inserted { repeatedFilmLinks += 1 }
+        }
+        if orphanFilmLinks > 0 { problems.append("\(orphanFilmLinks) film link(s) without both films") }
+        if selfFilmLinks > 0 { problems.append("\(selfFilmLinks) film link(s) from a film to itself") }
+        if repeatedFilmLinks > 0 { problems.append("\(repeatedFilmLinks) film link(s) on a pair of films already linked") }
         return problems
     }
 
@@ -962,6 +982,7 @@ final class LibraryModel: @unchecked Sendable {
         let film = entity("Film", Self.filmAttributes, unique: "id")
         let list = entity("ListObject", Self.listObjectAttributes, unique: "listID")
         let membership = entity("ListMembership", Self.listMembershipAttributes, unique: "id")
+        let link = entity("FilmLink", Self.filmLinkAttributes, unique: "id")
         let release = entity("Release", Self.releaseAttributes, unique: "id")
         let session = entity("ImportSession", Self.importSessionAttributes, unique: "id")
         /// One settings row, enforced by the uniqueness constraint. Contexts that may insert a second
@@ -979,9 +1000,14 @@ final class LibraryModel: @unchecked Sendable {
                     membership, "list", toMany: false, .nullifyDeleteRule)
         Self.relate(release, "parentRelease", toMany: false, .nullifyDeleteRule,
                     release, "childReleases", toMany: true, .nullifyDeleteRule)
+        /// Added in 1.1.0. Both film sides cascade, so a link goes with either of its films.
+        Self.relate(film, "outgoingLinks", toMany: true, .cascadeDeleteRule,
+                    link, "sourceFilm", toMany: false, .nullifyDeleteRule)
+        Self.relate(film, "incomingLinks", toMany: true, .cascadeDeleteRule,
+                    link, "targetFilm", toMany: false, .nullifyDeleteRule)
 
         let model = NSManagedObjectModel()
-        model.entities = [film, list, membership, release, session, settings, search]
+        model.entities = [film, list, membership, release, session, settings, search, link]
         self.model = model
     }
 
@@ -1078,6 +1104,10 @@ final class LibraryModel: @unchecked Sendable {
 
     static let listMembershipAttributes: [Attribute] = [
         ("id", .uuid), ("dateAdded", .date), ("sortOrder", .int),
+    ]
+
+    static let filmLinkAttributes: [Attribute] = [
+        ("id", .uuid), ("kind", .string), ("dateAdded", .date),
     ]
 
     static let importSessionAttributes: [Attribute] = [

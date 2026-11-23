@@ -18,7 +18,8 @@ import CoreData
 ///            (see LegacyReleaseValues), so a cache never needs scanning for old values; a
 ///            change to a stored value's format bumps this instead, as a layout change does.
 /// Version 6: market availability is respelled for each release's type and origin as it loads.
-private let currentCacheFormatVersion = 6
+/// Version 7: film links (`links`), and the fingerprint's link layer.
+private let currentCacheFormatVersion = 7
 
 /// The payload's JSON encoder and decoder. JSON was chosen over a binary plist for faster decode and
 /// encode on a 1,400-film library, at a modest cost in file size. Non-finite Doubles, which JSON cannot
@@ -55,10 +56,14 @@ private enum MemoryStoreCacheCoding {
 /// key/value lists, which are awkward to read back. The arrays avoid that.
 ///
 /// All three dictionaries are rebuilt right after decoding, on the same background thread.
+///
+/// `links` holds every link whose two films are in `films` (MemoryStore passes only those), so
+/// the payload never names a film it does not hold.
 private struct MemoryStoreCachePayload: Codable {
     let version: Int
     let films: [FilmSnapshot]
     let lists: [MemoryList]
+    let links: [FilmLinkSnapshot]
 }
 
 /// Transport for the fully-reconstructed dictionaries, so the rebuild can happen inside the
@@ -67,6 +72,7 @@ private struct DecodedStore: Sendable {
     let films: [UUID: FilmSnapshot]
     let lists: [UUID: MemoryList]
     let filmToLists: [UUID: Set<UUID>]
+    let links: [UUID: FilmLinkSnapshot]
 }
 
 /// Result of the speculative payload pipeline — read, decode, and dictionary rebuild, all
@@ -106,6 +112,10 @@ private struct SpeculativePayloadLoad: Sendable {
 /// List renames and sortFilterOptions changes are intentionally not covered. They do not affect data
 /// integrity, and the next save in the session records them.
 ///
+/// Link layer (detects link adds, deletes and rewrites): linkCount and linkFingerprint, see
+/// `FilmLinkLayerDigest`. A rewrite keeps a link's ID, so the digest mixes in both ends, the
+/// kind and the date, not the ID alone.
+///
 /// Hall of Fame ranks and user ratings are covered by the two digests below.
 struct StoreFingerprint: Codable, Sendable, Equatable {
     let filmCount: Int
@@ -137,6 +147,13 @@ struct StoreFingerprint: Codable, Sendable, Equatable {
     /// cache and be served stale. The next save would then write the stale value back.
     let hofRankFingerprint: UInt64
     let userRatingFingerprint: UInt64
+
+    /// The link layer. Memory never holds an orphan, and neither does the live side's count
+    /// (it reads only links with both films). A store holding links that break FilmLinkRules
+    /// (memory loads without them) differs here until the launch cleanup removes them, which
+    /// costs one slow launch, as duplicate memberships do.
+    let linkCount: Int
+    let linkFingerprint: UInt64
 
     /// Mixes a film's UUID hash with one integer field into a digest that is safe to XOR-accumulate.
     ///
@@ -183,7 +200,8 @@ private struct StoredFingerprintFile: Codable {
 
 enum MemoryStoreCacheResult {
     /// Cache hit: use these pre-built dictionaries directly.
-    case hit(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], filmToLists: [UUID: Set<UUID>])
+    case hit(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], filmToLists: [UUID: Set<UUID>],
+             links: [UUID: FilmLinkSnapshot])
     /// Cache miss: caller must do the full store fetch.
     case miss
 }
@@ -224,8 +242,8 @@ final class MemoryStoreCache: Loggable {
     /// `metadataFileID` is the MetadataCache save running beside this one. It yields the ID of the
     /// metadata file on disk once that save ends, or nil if it failed. The payload is encoded and
     /// written while it runs, and only the fingerprint file waits for it (see StoredFingerprintFile).
-    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64,
-              metadataFileID: Task<UUID?, Never>) async {
+    func save(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], links: [FilmLinkSnapshot],
+              contentVersion: UInt64, metadataFileID: Task<UUID?, Never>) async {
         let previous = saveInFlight
         let requestedEpoch = invalidationEpoch
         let current = Task {
@@ -234,7 +252,7 @@ final class MemoryStoreCache: Loggable {
                 Self.log("Save dropped: snapshot cache invalidated after it was requested")
                 return
             }
-            await self.write(films: films, lists: lists, contentVersion: contentVersion,
+            await self.write(films: films, lists: lists, links: links, contentVersion: contentVersion,
                              metadataFileID: metadataFileID)
         }
         saveInFlight = current
@@ -263,8 +281,8 @@ final class MemoryStoreCache: Loggable {
     /// Moved by every `invalidateOnDisk()`.
     private var invalidationEpoch = 0
 
-    private func write(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], contentVersion: UInt64,
-                       metadataFileID: Task<UUID?, Never>) async {
+    private func write(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList], links: [FilmLinkSnapshot],
+                       contentVersion: UInt64, metadataFileID: Task<UUID?, Never>) async {
         guard let payloadURL = payloadURL,
               let fingerprintURL = fingerprintURL else {
             Self.log("Save skipped: URL unavailable")
@@ -299,7 +317,7 @@ final class MemoryStoreCache: Loggable {
         /// a state no version describes.
         onDiskContentVersion = nil
         onDiskMetadataFileID = nil
-        let fingerprint = buildFingerprint(films: films, lists: lists)
+        let fingerprint = buildFingerprint(films: films, lists: lists, links: links)
         /// An invalidation that lands while the detached write below is running cannot stop
         /// it, and the write would put the old library's files back after the invalidation
         /// deleted them. Checked again once the write finishes.
@@ -322,7 +340,8 @@ final class MemoryStoreCache: Loggable {
                 let payload = MemoryStoreCachePayload(
                     version: currentCacheFormatVersion,
                     films: Array(films.values),
-                    lists: Array(lists.values)
+                    lists: Array(lists.values),
+                    links: links
                 )
 
                 let payloadData = try MemoryStoreCacheCoding.encoder().encode(payload)
@@ -489,13 +508,28 @@ final class MemoryStoreCache: Loggable {
             /// Computed once, so the two branches below are exact complements.
             let hofDiffers = liveFP.hofRankFingerprint != storedFP.hofRankFingerprint
             let ratingDiffers = liveFP.userRatingFingerprint != storedFP.userRatingFingerprint
+            let linksDiffer = liveFP.linkCount != storedFP.linkCount
+                || liveFP.linkFingerprint != storedFP.linkFingerprint
+
+            /// Only the link layer differs. Either the store holds links that break FilmLinkRules
+            /// (memory loads without them; this launch's cleanup removes them, so the next launch
+            /// hits), or a link change never reached the snapshot cache (a force quit inside the
+            /// save throttle; this session's save resolves it).
+            if filmIdentityMatches, liveFP.membershipCount == storedFP.membershipCount,
+               !hofDiffers, !ratingDiffers, linksDiffer {
+                Self.log("Cache miss: LINK-ONLY discrepancy — stored \(storedFP.linkCount) film link(s), "
+                    + "live \(liveFP.linkCount); every other layer matches. Rule-breaking links in the "
+                    + "store (removed by this launch's cleanup) or a link change lost in the save "
+                    + "throttle. Recurrence across launches means the cleanup is not completing.")
+                return .miss
+            }
 
             /// Rank or rating mismatch, with every count matching. The usual cause is a change lost in the save
             /// throttle after a force quit. The slow path corrects it in one launch. Repetition on normal quits
             /// would point to a defect in the shutdown flush.
             if filmIdentityMatches,
                liveFP.membershipCount == storedFP.membershipCount,
-               hofDiffers || ratingDiffers {
+               !linksDiffer, hofDiffers || ratingDiffers {
                 let layers: String
                 switch (hofDiffers, ratingDiffers) {
                 case (true, true):  layers = "Hall of Fame ranking and user ratings"
@@ -522,7 +556,7 @@ final class MemoryStoreCache: Loggable {
                /// The new digests must agree too, or this is not a membership-only
                /// difference and labeling it as one would send the reader looking for
                /// duplicate rows that do not exist.
-               !hofDiffers, !ratingDiffers,
+               !hofDiffers, !ratingDiffers, !linksDiffer,
                /// Strictly greater: a lower live count means memberships were removed, not duplicated.
                liveFP.membershipCount > storedFP.membershipCount {
                 let excess = liveFP.membershipCount - storedFP.membershipCount
@@ -598,7 +632,8 @@ final class MemoryStoreCache: Loggable {
 
         loadedMetadataFileID = storedMetadataFileID
         onDiskMetadataFileID = storedMetadataFileID
-        return .hit(films: decoded.films, lists: decoded.lists, filmToLists: decoded.filmToLists)
+        return .hit(films: decoded.films, lists: decoded.lists, filmToLists: decoded.filmToLists,
+                    links: decoded.links)
     }
 
     // MARK: - Early Start
@@ -717,8 +752,15 @@ final class MemoryStoreCache: Loggable {
                 }
             }
 
+            /// A link naming a film the payload does not hold is dropped: the writer never
+            /// puts one there, so only a damaged file could, and memory must not hold an orphan.
+            var linksByID = [UUID: FilmLinkSnapshot](minimumCapacity: payload.links.count)
+            for link in payload.links where filmsByID[link.sourceID] != nil && filmsByID[link.targetID] != nil {
+                linksByID[link.id] = link
+            }
+
             let store = DecodedStore(films: filmsByID, lists: listsByID,
-                                     filmToLists: filmToLists)
+                                     filmToLists: filmToLists, links: linksByID)
             return SpeculativePayloadLoad(outcome: .decoded(store),
                                           byteCount: payloadData.count,
                                           readElapsed: readElapsed,
@@ -741,8 +783,8 @@ final class MemoryStoreCache: Loggable {
 
     /// Builds the fingerprint from MemoryStore's dictionaries, for use during save. The film layer uses
     /// `FilmLayerDigest`, the same type the live side uses, so the two sides cannot disagree.
-    private func buildFingerprint(films: [UUID: FilmSnapshot],
-                                  lists: [UUID: MemoryList]) -> StoreFingerprint {
+    private func buildFingerprint(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList],
+                                  links: [FilmLinkSnapshot]) -> StoreFingerprint {
         var filmLayer = FilmLayerDigest()
         for snapshot in films.values {
             filmLayer.add(id: snapshot.id, lastModified: snapshot.lastModified,
@@ -753,6 +795,9 @@ final class MemoryStoreCache: Loggable {
         /// matching what Core Data reports via fetchCount(ListMembership.request()).
         let membershipCount = lists.values.reduce(0) { $0 + $1.filmIDs.count }
 
+        var linkLayer = FilmLinkLayerDigest()
+        for link in links { linkLayer.add(link) }
+
         return StoreFingerprint(
             filmCount: filmLayer.filmCount,
             xorFingerprint: filmLayer.xor,
@@ -760,9 +805,32 @@ final class MemoryStoreCache: Loggable {
             listCount: lists.count,
             membershipCount: membershipCount,
             hofRankFingerprint: filmLayer.hofRankXor,
-            userRatingFingerprint: filmLayer.userRatingXor
+            userRatingFingerprint: filmLayer.userRatingXor,
+            linkCount: linkLayer.linkCount,
+            linkFingerprint: linkLayer.xor
         )
     }
+
+    #if DEBUG
+    /// The stored-side fingerprint for these values, for the harness to compare with the
+    /// live one (`DataManager.computeStoreFingerprint`).
+    func fingerprintForTesting(films: [UUID: FilmSnapshot], lists: [UUID: MemoryList],
+                               links: [FilmLinkSnapshot]) -> StoreFingerprint {
+        buildFingerprint(films: films, lists: lists, links: links)
+    }
+
+    /// Encodes and decodes a payload exactly as `write` and the load pipeline do, for the
+    /// harness's round-trip check. Returns the decoded links, or nil when either step fails.
+    nonisolated static func payloadRoundTripForTesting(films: [FilmSnapshot], lists: [MemoryList],
+                                                       links: [FilmLinkSnapshot]) -> [FilmLinkSnapshot]? {
+        let payload = MemoryStoreCachePayload(version: currentCacheFormatVersion, films: films,
+                                              lists: lists, links: links)
+        guard let data = try? MemoryStoreCacheCoding.encoder().encode(payload),
+              let decoded = try? MemoryStoreCacheCoding.decoder().decode(MemoryStoreCachePayload.self, from: data)
+        else { return nil }
+        return decoded.links
+    }
+    #endif
 }
 
 // MARK: - UUID UInt64 Decomposition

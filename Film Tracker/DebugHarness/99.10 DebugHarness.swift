@@ -305,6 +305,11 @@ enum DebugHarness: Loggable {
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
             return value
         }
+        if let filmLinkResult = await runFilmLinkScenario(scenario, coordinator: coordinator) {
+            var value = filmLinkResult
+            value.durationMilliseconds = milliseconds(ContinuousClock.now - start)
+            return value
+        }
         if let bulkEditResult = await runBulkEditScenario(scenario, coordinator: coordinator) {
             var value = bulkEditResult
             value.durationMilliseconds = milliseconds(ContinuousClock.now - start)

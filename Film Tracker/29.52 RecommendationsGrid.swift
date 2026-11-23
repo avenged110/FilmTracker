@@ -274,12 +274,24 @@ final class RecGridCoordinator: NSObject, NSCollectionViewDataSource, NSCollecti
         }
         self.content = content
         layout?.content = content
+        layout?.buildsEveryElement = false
         hoverRouter.clear()
         /// The reload replaces the cell the popover points from.
         whyPopover?.close()
         collectionView?.reloadData()
-        /// The reload replaced the cells under the pointer; the one now there takes the hover.
-        DispatchQueue.main.async { [weak self] in self?.hoverRouter.resync() }
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            /// The reload replaced the cells under the pointer; the one now there takes the hover.
+            self.hoverRouter.resync()
+            /// Then, once the visible rows have drawn, the rest of the grid is built while nothing
+            /// moves: every cell below the fold and the double feature's card. Built on the first
+            /// scroll instead, they cost a hitch there (the card's SwiftUI hosting view above all,
+            /// partway down the page). The grid holds at most about thirty elements.
+            guard let layout = self.layout, let collectionView = self.collectionView else { return }
+            layout.buildsEveryElement = true
+            layout.invalidateLayout()
+            collectionView.layoutSubtreeIfNeeded()
+        }
     }
 
     // MARK: Lookup
@@ -502,6 +514,9 @@ final class RecGridLayout: NSCollectionViewLayout {
     var content: RecGridContent? {
         didSet { invalidateLayout() }
     }
+    /// When true, every element is reported for any rect, so the collection view builds (and keeps)
+    /// the whole grid rather than only the rows near the visible ones (RecGridCoordinator.update).
+    var buildsEveryElement = false
 
     private var itemAttributes: [NSCollectionViewLayoutAttributes] = []
     private var decorationAttributes: [NSCollectionViewLayoutAttributes] = []
@@ -615,7 +630,8 @@ final class RecGridLayout: NSCollectionViewLayout {
     override var collectionViewContentSize: NSSize { contentSize }
 
     override func layoutAttributesForElements(in rect: NSRect) -> [NSCollectionViewLayoutAttributes] {
-        (itemAttributes + decorationAttributes + bannerAttributes.values).filter { $0.frame.intersects(rect) }
+        let all = itemAttributes + decorationAttributes + bannerAttributes.values
+        return buildsEveryElement ? all : all.filter { $0.frame.intersects(rect) }
     }
 
     override func layoutAttributesForItem(at indexPath: IndexPath) -> NSCollectionViewLayoutAttributes? {
@@ -733,26 +749,28 @@ private final class RecGridItemView: NSView {
 
 // MARK: - Subtitle
 
-/// The year, runtime and rating under a poster, each in a fixed place: the rating at the poster's
-/// left edge, the year centered, the runtime at its right edge. In the gallery's subtitle type and
-/// color (GalleryTileContentView), with monospaced digits so equal values line up across posters.
+/// The year and runtime under a poster: the year at the poster's left edge, the runtime at its
+/// right edge, led by the unwatched glyph for a film never watched. In the gallery's subtitle type
+/// and color (GalleryTileContentView), with monospaced digits so equal values line up across posters.
 private final class RecSubtitleRow: NSView {
     static let font = NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .semibold)
     /// GalleryTileContentView.subtitleTopGap: the selection ring's full overhang.
     static let topGap: CGFloat = GalleryTileGeometry.ringGap + Preferences.selectionLineWidth
     static let height: CGFloat = ceil(font.ascender - font.descender + font.leading) + 1
+    static let unwatchedGlyph = "eye.slash.fill"
+    /// Between the glyph's right edge and the runtime's first digit.
     private static let glyphGap: CGFloat = 2
 
-    private let star = NSImageView()
-    private let ratingLabel = RecSubtitleRow.label(.left)
-    private let yearLabel = RecSubtitleRow.label(.center)
+    private let unwatched = NSImageView()
+    private let yearLabel = RecSubtitleRow.label(.left)
     private let runtimeLabel = RecSubtitleRow.label(.right)
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        star.imageScaling = .scaleNone
-        star.contentTintColor = .secondaryLabelColor
-        for view in [star, ratingLabel, yearLabel, runtimeLabel] { addSubview(view) }
+        unwatched.imageScaling = .scaleNone
+        unwatched.contentTintColor = .secondaryLabelColor
+        unwatched.image = Self.unwatchedImage
+        for view in [unwatched, yearLabel, runtimeLabel] { addSubview(view) }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -767,21 +785,17 @@ private final class RecSubtitleRow: NSView {
         return label
     }
 
-    /// Built once each: the two glyphs are the same for every poster.
-    private static let starImage = NSImage(systemSymbolName: "star.fill", accessibilityDescription: "Rated")?
-        .withSymbolConfiguration(.init(pointSize: 8.5, weight: .semibold))
-    private static let noStarImage = NSImage(systemSymbolName: "star.slash.fill", accessibilityDescription: "Not rated")?
+    /// Built once: the glyph is the same for every poster.
+    private static let unwatchedImage = NSImage(systemSymbolName: unwatchedGlyph, accessibilityDescription: "Not watched yet")?
         .withSymbolConfiguration(.init(pointSize: 8.5, weight: .semibold))
 
     func configure(pick: RecPick) {
-        let rated = pick.userRating > 0
-        star.image = rated ? Self.starImage : Self.noStarImage
-        ratingLabel.stringValue = rated ? "\(pick.userRating)" : ""
+        unwatched.isHidden = pick.watched
         yearLabel.stringValue = pick.year.isEmpty ? "—" : pick.year
         runtimeLabel.stringValue = pick.runtimeMinutes.map(recCompactRuntime) ?? "—"
-        let parts = [rated ? "Your rating: \(pick.userRating)" : "Not rated",
-                     pick.year.isEmpty ? "No release year" : "Released in \(pick.year)",
-                     pick.runtimeMinutes.map(recRuntime) ?? "No runtime"]
+        var parts = [pick.year.isEmpty ? "No release year" : "Released in \(pick.year)"]
+        if !pick.watched { parts.append("Not watched yet") }
+        parts.append(pick.runtimeMinutes.map(recRuntime) ?? "No runtime")
         toolTip = parts.joined(separator: ", ")
         setAccessibilityLabel(toolTip)
         needsLayout = true
@@ -790,19 +804,22 @@ private final class RecSubtitleRow: NSView {
     override func layout() {
         super.layout()
         let width = bounds.width, height = bounds.height
-        let starSize = star.image?.size ?? .zero
         let labelHeight = ceil(yearLabel.intrinsicContentSize.height)
         let labelY = ((height - labelHeight) / 2).rounded()
-        /// The glyph centered on the digits' cap height, a point high so it reads level with them.
-        /// The year always has text, so its baseline stands for the row's.
-        let baseline = labelY + labelHeight - yearLabel.firstBaselineOffsetFromTop
-        let starY = (baseline + (Self.font.capHeight - starSize.height) / 2 + 1).rounded()
-        star.frame = NSRect(x: 0, y: starY, width: starSize.width, height: starSize.height)
-        ratingLabel.frame = NSRect(x: star.frame.maxX + Self.glyphGap, y: labelY,
-                                   width: ceil(ratingLabel.intrinsicContentSize.width) + 2, height: labelHeight)
-        /// The year and the runtime each take a third, so neither moves with the other's length.
-        yearLabel.frame = NSRect(x: width / 3, y: labelY, width: width / 3, height: labelHeight)
-        runtimeLabel.frame = NSRect(x: 2 * width / 3, y: labelY, width: width / 3, height: labelHeight)
+        /// The year and the runtime each take an outer half, so neither moves with the other's length.
+        yearLabel.frame = NSRect(x: 0, y: labelY, width: width / 2, height: labelHeight)
+        runtimeLabel.frame = NSRect(x: width / 2, y: labelY, width: width / 2, height: labelHeight)
+        guard !unwatched.isHidden else { return }
+        /// The glyph just left of the runtime's text, centered on the digits' cap height and a point
+        /// high so it reads level with them (as the slashed star it replaces was).
+        let glyphSize = unwatched.image?.size ?? .zero
+        let baseline = labelY + labelHeight - runtimeLabel.firstBaselineOffsetFromTop
+        let glyphY = (baseline + (Self.font.capHeight - glyphSize.height) / 2 + 1).rounded()
+        /// The label's own 2 pt inset (NSTextField's line fragment padding) sits right of its text.
+        let textWidth = ceil(runtimeLabel.intrinsicContentSize.width)
+        let textX = runtimeLabel.frame.maxX - textWidth
+        unwatched.frame = NSRect(x: (textX + 2 - Self.glyphGap - glyphSize.width).rounded(), y: glyphY,
+                                 width: glyphSize.width, height: glyphSize.height)
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -821,6 +838,9 @@ private final class RecPosterOverlay: NSView {
     fileprivate static let pillHeight: CGFloat = 24
     fileprivate static let pillFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .bold)
     private static let pillGlyphPoints: CGFloat = 12
+    /// Glyphs drawn wider than the others at 12 pt, at the size that fits them in the 16 pt
+    /// slot like the rest: the Queue glyph is 18 pt wide at 12 pt and ran into the padding.
+    private static let pillGlyphPointOverrides: [String: CGFloat] = [ViewGlyphs.filmQueue.outline: 10]
     private static let pillGlyphWidth: CGFloat = 16
     private static let pillPadding: CGFloat = 9
     private static let pillGap: CGFloat = 4
@@ -839,6 +859,10 @@ private final class RecPosterOverlay: NSView {
     /// Between the two rows: room enough to aim a click.
     private static let rowSpacing: CGFloat = 10
     private static let controlsBottomInset: CGFloat = 12
+    /// Clear space around the circles inside the controls' container, so neither the blur's mask nor
+    /// the container's edge can shave the antialiased rim off a circle (the bottom row lost its
+    /// lowest pixel row where the circles touched the container's edge).
+    private static let controlsMargin: CGFloat = 2
 
     private let backing = RecBlurBacking(mask: RecBlurBacking.pillMask)
     private let pill = RecPlate()
@@ -851,7 +875,8 @@ private final class RecPosterOverlay: NSView {
     private var buttons: [RecOverlayButton] = []
     private var onAction: (@MainActor (RecOverlayAction, NSView) -> Void)?
     private var controlsVisible = false
-    private var backingShapesSize: NSSize = .zero
+    /// The overlay size and button size the shadows were last cut for.
+    private var shadowsCutFor: (bounds: NSSize, button: CGFloat)?
     private var controlsButtonSize: CGFloat = 0
 
     override var isFlipped: Bool { true }
@@ -890,8 +915,9 @@ private final class RecPosterOverlay: NSView {
 
     func configure(pick: RecPick, isLiked: Bool, onAction: @escaping @MainActor (RecOverlayAction, NSView) -> Void) {
         self.onAction = onAction
-        laneImage.image = NSImage(systemSymbolName: pick.lane.glyph, accessibilityDescription: pick.lane.title)?
-            .withSymbolConfiguration(.init(pointSize: Self.pillGlyphPoints, weight: .semibold))
+        laneImage.image = RecOverlayButton.image(pick.lane.glyph,
+                                                 points: Self.pillGlyphPointOverrides[pick.lane.glyph] ?? Self.pillGlyphPoints)
+        laneImage.image?.accessibilityDescription = pick.lane.title
         matchLabel.stringValue = "\(pick.match)%"
         pill.toolTip = "\(pick.lane.title). Taste match \(pick.match)%: How well the film fits what the engine has learned you like"
         setLiked(isLiked)
@@ -931,18 +957,24 @@ private final class RecPosterOverlay: NSView {
         matchLabel.frame = NSRect(x: laneImage.frame.maxX + Self.pillGap, y: snap((height - matchHeight) / 2),
                                   width: Self.matchTextWidth, height: matchHeight)
         pill.updateCorners()
-        if backing.bounds.size != backingShapesSize {
-            backingShapesSize = backing.bounds.size
-            backing.setShadowShapes([backing.bounds])
-        }
 
-        let spacing = Self.buttonSpacing
+        let spacing = Self.buttonSpacing, margin = Self.controlsMargin
         let size = max(16, min(Self.maxButtonSize, floor((bounds.width - 2 * inset - 2 * spacing) / 3)))
         let width = 3 * size + 2 * spacing, controlsHeight = 2 * size + Self.rowSpacing
-        controls.frame = NSRect(x: snap((bounds.width - width) / 2),
-                                y: bounds.height - Self.controlsBottomInset - controlsHeight,
-                                width: width, height: controlsHeight)
+        /// On whole backing pixels: a container on a fractional row cut its bottom pixel row.
+        controls.frame = NSRect(x: snap((bounds.width - width) / 2) - margin,
+                                y: snap(bounds.height - Self.controlsBottomInset - controlsHeight) - margin,
+                                width: width + 2 * margin, height: controlsHeight + 2 * margin)
         if size != controlsButtonSize { layoutControls(size: size) }
+
+        /// The shadows fall on the poster only, never past its rounded edge onto the window: each is
+        /// cut to the poster's shape, given in its own backing's space.
+        if shadowsCutFor?.bounds != bounds.size || shadowsCutFor?.button != size {
+            shadowsCutFor = (bounds.size, size)
+            backing.setShadowShapes([backing.bounds], clip: bounds.offsetBy(dx: -pill.frame.minX, dy: -pill.frame.minY))
+            controlsBacking.setShadowShapes(buttons.map(\.frame),
+                                            clip: bounds.offsetBy(dx: -controls.frame.minX, dy: -controls.frame.minY))
+        }
     }
 
     /// Two on top, centered over the three below: the lower two rows of a pyramid.
@@ -955,21 +987,21 @@ private final class RecPosterOverlay: NSView {
             button.updateCorners()
         }
         controlsBacking.frame = controls.bounds
-        controlsBacking.setMask(RecBlurBacking.circlesMask(frames, canvas: controls.bounds.size))
-        controlsBacking.setShadowShapes(frames)
+        controlsBacking.setMask(RecBlurBacking.circlesMask(size: size, canvas: controls.bounds.size, frames: frames))
     }
 
-    /// The five controls' frames in the controls' flipped space, in `buttons` order.
+    /// The five controls' frames in the controls' flipped space, in `buttons` order, inside the
+    /// container's clear margin.
     private static func controlFrames(size: CGFloat) -> [NSRect] {
-        let spacing = buttonSpacing
-        let topX = (size + spacing) / 2
-        let lowerY = size + rowSpacing
+        let spacing = buttonSpacing, margin = controlsMargin
+        let topX = margin + (size + spacing) / 2
+        let lowerY = margin + size + rowSpacing
         return [
-            NSRect(x: topX, y: 0, width: size, height: size),
-            NSRect(x: topX + size + spacing, y: 0, width: size, height: size),
-            NSRect(x: 0, y: lowerY, width: size, height: size),
-            NSRect(x: size + spacing, y: lowerY, width: size, height: size),
-            NSRect(x: 2 * (size + spacing), y: lowerY, width: size, height: size),
+            NSRect(x: topX, y: margin, width: size, height: size),
+            NSRect(x: topX + size + spacing, y: margin, width: size, height: size),
+            NSRect(x: margin, y: lowerY, width: size, height: size),
+            NSRect(x: margin + size + spacing, y: lowerY, width: size, height: size),
+            NSRect(x: margin + 2 * (size + spacing), y: lowerY, width: size, height: size),
         ]
     }
 
@@ -1001,8 +1033,13 @@ private final class RecBlurBacking: NSView {
     private let shadowLayer = CALayer()
     private let shadowMask = CAShapeLayer()
     private let effect = NSVisualEffectView()
+    /// The shadow, strong enough to lift the shapes off a busy or light poster. Tuned together:
+    /// the reach must cover the blur (about twice the radius) plus the offset.
+    private static let shadowOpacity: Float = 0.9
+    private static let shadowRadius: CGFloat = 8
+    private static let shadowOffset = CGSize(width: 0, height: -2)
     /// How far past the shapes the shadow can reach; the mask covers all of it.
-    private static let shadowReach: CGFloat = 14
+    private static let shadowReach: CGFloat = 2 * shadowRadius + abs(shadowOffset.height) + 4
 
     /// Unflipped, so its layers and the mask image share AppKit's y-up space.
     override var isFlipped: Bool { false }
@@ -1014,9 +1051,9 @@ private final class RecBlurBacking: NSView {
 
         shadowLayer.masksToBounds = false
         shadowLayer.shadowColor = NSColor.black.cgColor
-        shadowLayer.shadowOpacity = 0.6
-        shadowLayer.shadowRadius = 5
-        shadowLayer.shadowOffset = CGSize(width: 0, height: -1)
+        shadowLayer.shadowOpacity = Self.shadowOpacity
+        shadowLayer.shadowRadius = Self.shadowRadius
+        shadowLayer.shadowOffset = Self.shadowOffset
         shadowLayer.actions = ["shadowPath": NSNull(), "bounds": NSNull(), "position": NSNull(), "frame": NSNull()]
         shadowMask.fillRule = .evenOdd
         shadowMask.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull(), "frame": NSNull()]
@@ -1044,14 +1081,17 @@ private final class RecBlurBacking: NSView {
 
     func setMask(_ mask: NSImage) { effect.maskImage = mask }
 
-    /// The shapes' frames in the overlay's flipped space; each is a capsule or circle.
-    func setShadowShapes(_ frames: [NSRect]) {
+    /// The shapes' frames, each a capsule or circle, and `clip`, the poster the shadow may fall on,
+    /// both in this view's flipped space (the overlay's, moved to this view's origin).
+    func setShadowShapes(_ frames: [NSRect], clip: NSRect) {
         let height = bounds.height
         let reach = Self.shadowReach
         let path = CGMutablePath()
         let maskFrame = bounds.insetBy(dx: -reach, dy: -reach)
         let maskPath = CGMutablePath()
-        maskPath.addRect(CGRect(origin: .zero, size: maskFrame.size))
+        /// The poster's rounded shape, unflipped and in the mask's space; the shapes are cut out of it.
+        let clipRect = NSRect(x: clip.minX + reach, y: height - clip.maxY + reach, width: clip.width, height: clip.height)
+        maskPath.addPath(CGPath.continuousRoundedRect(clipRect, cornerRadius: Preferences.cornerRadius))
         for frame in frames {
             let rect = NSRect(x: frame.minX, y: height - frame.maxY, width: frame.width, height: frame.height)
             let radius = min(rect.width, rect.height) / 2
@@ -1084,14 +1124,19 @@ private final class RecBlurBacking: NSView {
     }()
 
     /// The controls' circles at their current size, in the controls' flipped space. Drawn lazily
-    /// (a drawing handler), and made only when the size changes.
-    static func circlesMask(_ frames: [NSRect], canvas: NSSize) -> NSImage {
-        NSImage(size: canvas, flipped: true) { _ in
+    /// (a drawing handler). Every poster in a grid shares one button size, so the last mask made is
+    /// kept and handed to every cell of that size rather than drawn again for each.
+    static func circlesMask(size: CGFloat, canvas: NSSize, frames: [NSRect]) -> NSImage {
+        if let cached = lastCirclesMask, cached.size == size, cached.canvas == canvas { return cached.image }
+        let image = NSImage(size: canvas, flipped: true) { _ in
             NSColor.black.setFill()
             for frame in frames { NSBezierPath(ovalIn: frame).fill() }
             return true
         }
+        lastCirclesMask = (size, canvas, image)
+        return image
     }
+    @MainActor private static var lastCirclesMask: (size: CGFloat, canvas: NSSize, image: NSImage)?
 }
 
 /// A shape's tint and hairline edge, over RecBlurBacking's blur.
@@ -1106,13 +1151,17 @@ private final class RecPlate: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    static let tint = NSColor.black.withAlphaComponent(0.3).cgColor
+    /// A control's tint while it is held down: darker, as a pressed button darkens elsewhere.
+    static let pressedTint = NSColor.black.withAlphaComponent(0.6).cgColor
+
     static func style(_ layer: CALayer?) {
         guard let layer else { return }
-        layer.backgroundColor = NSColor.black.withAlphaComponent(0.3).cgColor
+        layer.backgroundColor = tint
         layer.borderColor = NSColor.white.withAlphaComponent(0.16).cgColor
         layer.borderWidth = 0.5
         layer.cornerCurve = .continuous
-        layer.actions = ["cornerRadius": NSNull(), "bounds": NSNull(), "position": NSNull()]
+        layer.actions = ["cornerRadius": NSNull(), "bounds": NSNull(), "position": NSNull(), "backgroundColor": NSNull()]
     }
 
     func updateCorners() {
@@ -1141,6 +1190,10 @@ private final class RecOverlayButton: NSButton {
     private init(help: String, handler: @escaping @MainActor (NSView) -> Void) {
         self.handler = handler
         super.init(frame: .zero)
+        /// First, before any other setting: replacing the cell resets the button's.
+        let cell = RecOverlayButtonCell()
+        cell.onHighlight = { [weak self] pressed in self?.showPressed(pressed) }
+        self.cell = cell
         isBordered = false
         bezelStyle = .regularSquare
         imageScaling = .scaleNone
@@ -1170,8 +1223,8 @@ private final class RecOverlayButton: NSButton {
 
     func setGlyph(_ glyph: String, help: String) {
         self.glyph = glyph
-        image = NSImage(systemSymbolName: glyph, accessibilityDescription: help)?
-            .withSymbolConfiguration(.init(pointSize: glyphPoints, weight: .semibold))
+        image = RecOverlayButton.image(glyph, points: glyphPoints)
+        image?.accessibilityDescription = help
         toolTip = help
         setAccessibilityLabel(help)
     }
@@ -1180,9 +1233,38 @@ private final class RecOverlayButton: NSButton {
         layer?.cornerRadius = min(bounds.width, bounds.height) / 2
     }
 
+    /// Built once per glyph and size and shared by every poster's controls, so a new cell copies
+    /// a reference instead of building ten symbol images.
+    private static var images: [String: NSImage] = [:]
+    static func image(_ glyph: String, points: CGFloat) -> NSImage? {
+        let key = "\(glyph)@\(points)"
+        if let image = images[key] { return image.copy() as? NSImage }
+        guard let image = NSImage(systemSymbolName: glyph, accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: points, weight: .semibold)) else { return nil }
+        images[key] = image
+        return image.copy() as? NSImage
+    }
+
+    /// Held down: the plate darkens and the glyph dims, until the button is let go or the pointer
+    /// leaves it (AppKit's own tracking calls the cell's highlight either way).
+    private func showPressed(_ pressed: Bool) {
+        layer?.backgroundColor = pressed ? RecPlate.pressedTint : RecPlate.tint
+        contentTintColor = pressed ? NSColor.white.withAlphaComponent(0.65) : .white
+    }
+
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     @objc private func fire() { handler(self) }
+}
+
+/// Reports AppKit's press highlight, which a borderless, layer-tinted button otherwise never shows.
+private final class RecOverlayButtonCell: NSButtonCell {
+    var onHighlight: (@MainActor (Bool) -> Void)?
+
+    override func highlight(_ flag: Bool, withFrame cellFrame: NSRect, in controlView: NSView) {
+        super.highlight(flag, withFrame: cellFrame, in: controlView)
+        onHighlight?(flag)
+    }
 }
 
 // MARK: - Why? Popover
@@ -1199,10 +1281,15 @@ struct RecWhyPopover: View {
                 (Text(pick.name) + Text(pick.year.isEmpty ? "" : " (\(pick.year))").foregroundStyle(.secondary))
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
-                Label("\(pick.lane.title) · \(pick.match)% taste match", systemImage: pick.lane.glyph)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                /// Not a Label: its icon-to-title gap is wider than this small line wants.
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Image(systemName: pick.lane.glyph)
+                    Text("\(pick.lane.title) · \(pick.match)% taste match")
+                }
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .accessibilityElement(children: .combine)
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -1381,16 +1468,19 @@ final class RecBannerView: NSView, NSCollectionViewElement {
     }
 }
 
-/// A card's shape: the gallery's poster corner, a faint fill and hairline edge.
+/// A card's shape: the field edge the right sidebar and FilmSheet fields wear, rounded to the
+/// gallery's poster corner so the card matches the poster beside it.
 private struct RecCardBackground: ViewModifier {
+    private static let style: FieldEdgeStyle = {
+        var style = FieldEdgeStyle.standard
+        style.cornerRadius = Preferences.cornerRadius
+        return style
+    }()
+
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(RoundedRectangle(cornerRadius: Preferences.cornerRadius, style: .continuous)
-                .fill(Color.primary.opacity(0.04)))
-            .overlay(RoundedRectangle(cornerRadius: Preferences.cornerRadius, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.07)))
-            .clipShape(RoundedRectangle(cornerRadius: Preferences.cornerRadius, style: .continuous))
+            .fieldEdgeChrome(Self.style, clipsContent: true)
     }
 }
 
@@ -1404,12 +1494,13 @@ private struct RecHeroPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             VStack(alignment: .leading, spacing: 3) {
-                Text(pick.name)
+                /// The year as the Why popover's title shows it: secondary, in parentheses.
+                (Text(pick.name) + Text(pick.year.isEmpty ? "" : " (\(pick.year))").foregroundStyle(.secondary))
                     .font(.system(size: 20, weight: .bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
-                if !metaLine.isEmpty {
-                    Text(metaLine)
+                if let metaLine {
+                    metaLine
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -1425,9 +1516,14 @@ private struct RecHeroPanel: View {
                 Color.clear.frame(height: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            HStack(alignment: .center) {
+            HStack(alignment: .center, spacing: 10) {
                 addButton
-                infoLine
+                if upNextIsFull {
+                    Text("“Up Next” already holds the maximum of \(FilmQueue.upNextCapacity) films")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
         }
         .padding(14)
@@ -1452,30 +1548,27 @@ private struct RecHeroPanel: View {
         }
     }
 
-    /// The rating (a slashed star when unrated), year and runtime, as under the other posters.
-    private var infoLine: some View {
-        let rated = pick.userRating > 0
-        var parts: [String] = rated ? ["\(pick.userRating)"] : []
-        if !pick.year.isEmpty { parts.append(pick.year) }
-        if let minutes = pick.runtimeMinutes { parts.append(recCompactRuntime(minutes)) }
-        return HStack(spacing: 3) {
-            Image(systemName: rated ? "star.fill" : "star.slash.fill")
-                .font(.system(size: 9.5, weight: .semibold))
-            Text(parts.joined(separator: " · "))
-                .monospacedDigit()
+    /// The certification, genre, runtime and director. An unwatched film's runtime is led by the
+    /// unwatched glyph, as under the other posters; with no runtime known, the glyph stands alone.
+    private var metaLine: Text? {
+        var parts: [Text] = []
+        if !pick.certification.isEmpty { parts.append(Text(pick.certification)) }
+        if !pick.genre.isEmpty { parts.append(Text(pick.genre)) }
+        let runtime = pick.runtimeMinutes.map(recRuntime)
+        if !pick.watched {
+            let glyph = Text(Image(systemName: RecSubtitleRow.unwatchedGlyph)).accessibilityLabel("Not watched yet")
+            parts.append(runtime.map { glyph + Text(" \($0)") } ?? glyph)
+        } else if let runtime {
+            parts.append(Text(runtime))
         }
-        .font(.system(size: 11, weight: .medium))
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
-        .accessibilityElement(children: .combine)
+        if !pick.byline.isEmpty { parts.append(Text(pick.byline)) }
+        guard let first = parts.first else { return nil }
+        return parts.dropFirst().reduce(first) { $0 + Text("  ·  ") + $1 }
     }
 
-    private var metaLine: String {
-        var parts: [String] = []
-        if !pick.certification.isEmpty { parts.append(pick.certification) }
-        if !pick.genre.isEmpty { parts.append(pick.genre) }
-        if !pick.byline.isEmpty { parts.append(pick.byline) }
-        return parts.joined(separator: "  ·  ")
+    /// Up Next has no room for this film: the button is off and the note beside it says why.
+    private var upNextIsFull: Bool {
+        pick.queueSection != .upNext && FilmQueue.upNextOverflow(adding: [pick.id], coordinator: dataCoordinator) > 0
     }
 
     /// Edit and the rest are the selected film's, as in any gallery: a click on the poster selects it.
@@ -1485,11 +1578,11 @@ private struct RecHeroPanel: View {
             guard section != .upNext else { return }
             model.addToUpNext(pick.id, coordinator: dataCoordinator)
         } label: {
-            Label(section == .upNext ? "In Up Next" : "Add to Up Next", systemImage: ViewGlyphs.queueUpNext.outline)
+            Text(section == .upNext ? "In “Up Next”" : "Add to “Up Next”")
         }
         .buttonStyle(.borderedProminent)
         .controlSize(.regular)
-        .disabled(section == .upNext || FilmQueue.upNextOverflow(adding: [pick.id], coordinator: dataCoordinator) > 0)
+        .disabled(section == .upNext || upNextIsFull)
     }
 }
 

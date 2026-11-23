@@ -295,7 +295,8 @@ extension DebugHarness {
             ("Release", { self.probeRelease().extractExportValues().properties }),
             ("ImportSession", { self.probeImportSession().extractExportValues().properties }),
             ("SettingsObject", { self.probeSettings().extractExportValues().properties }),
-            ("SavedSearchObject", { self.probeSavedSearch().extractExportValues().properties })
+            ("SavedSearchObject", { self.probeSavedSearch().extractExportValues().properties }),
+            ("FilmLink", { self.probeFilmLink().extractExportValues().properties })
         ]
         for (entityName, produce) in extractorSources {
             let attributeNames = Set(backupHarnessSchema.entities
@@ -327,7 +328,7 @@ extension DebugHarness {
         /// `settings-restore-covers-every-field` in `backup-integrity`, which uses a
         /// hand-written file no live code can touch.
         let fileCoverageEntities = ["Film", "ListObject", "ListMembership", "Release", "ImportSession",
-                                    "SavedSearchObject"]
+                                    "SavedSearchObject", "FilmLink"]
         for entityName in fileCoverageEntities {
             let attributeNames = Set(backupHarnessSchema.entities
                 .first { $0.name == entityName }?.attributes.map(\.name) ?? [])
@@ -361,6 +362,8 @@ extension DebugHarness {
         r.check("relationship:ListMembership.filmID", hasUUID("ListMembership", "filmID"), "")
         r.check("relationship:ListMembership.listID", hasUUID("ListMembership", "listID"), "")
         r.check("relationship:Release.filmID", hasUUID("Release", "filmID"), "")
+        r.check("relationship:FilmLink.sourceFilmID", hasUUID("FilmLink", "sourceFilmID"), "")
+        r.check("relationship:FilmLink.targetFilmID", hasUUID("FilmLink", "targetFilmID"), "")
 
         /// The parent link is written only for children, by design — a parentless release
         /// omits the key entirely so the restorer's "absent means top-level" reading is exact.
@@ -415,6 +418,11 @@ extension DebugHarness {
     }
 
     @MainActor
+    static func probeFilmLink() -> FilmLink {
+        FilmLink(id: UUID(), kind: FilmLinkKind.remake, source: probeFilm(), target: probeFilm(), dateAdded: Date())
+    }
+
+    @MainActor
     static func probeRelease() -> Release {
         let release = fullyPopulatedRelease(id: UUID(), film: probeFilm(), dateAdded: Date())
         /// A parent, so `parentReleaseID` is offered too — the extractor omits the key for a
@@ -457,6 +465,7 @@ extension DebugHarness {
         var filmA = UUID(), filmB = UUID()
         var listOne = UUID(), listTwo = UUID()
         var membershipIDs: [UUID] = []
+        var filmLinkID = UUID()
         var parentReleaseID = UUID()
         var childReleaseIDs: [UUID] = []
         var soloReleaseID = UUID()
@@ -467,7 +476,7 @@ extension DebugHarness {
         var sessionDate = Date(timeIntervalSince1970: 1_400_000_000)
 
         var summary: String {
-            "2 film(s), 2 list(s), \(membershipIDs.count) membership(s), "
+            "2 film(s), 2 list(s), \(membershipIDs.count) membership(s), 1 film link, "
                 + "\(childReleaseIDs.count + 2) release(s), 1 import session, 1 settings object"
         }
     }
@@ -713,6 +722,10 @@ extension DebugHarness {
             graph.membershipIDs.append(membership.id)
             context.insert(membership)
         }
+
+        /// One film link, film B a sequel of film A.
+        _ = FilmLink(id: graph.filmLinkID, kind: FilmLinkKind.sequel, source: filmB, target: filmA,
+                     dateAdded: graph.membershipDateAdded)
 
         /// Release hierarchy: a 4K parent bundling two Blu-rays. Two children rather than one,
         /// because the one-level guard and the inverse-array repair both behave differently
@@ -1529,6 +1542,10 @@ extension DebugHarness {
                 + "\(session.successCount)|\(session.addedTitles)|\(session.isCompleted)|"
                 + "\(Int(session.sessionDate.timeIntervalSince1970))")
         }
+        for link in try context.fetch(FilmLink.request()).sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
+            lines.append("FilmLink|\(link.id)|\(link.kind)|\(String(describing: link.sourceFilm?.id))|"
+                + "\(String(describing: link.targetFilm?.id))|\(Int(link.dateAdded.timeIntervalSince1970))")
+        }
         /// The settings singleton is deliberately absent, for the reason given on
         /// `backupDigest`: the running application rewrites it on a timer, so comparing two
         /// stores on it would measure the timer rather than the restore.
@@ -2126,16 +2143,17 @@ extension DebugHarness {
             let xmlURL = package.appendingPathComponent("backup.xml")
             let written = try Data(contentsOf: xmlURL)
             let reparsed = try await DBImporter().parseBackupFile(at: xmlURL)
-            /// films, lists, memberships, releases, session, saved search, settings — the shape
-            /// `seedFullGraph` writes.
-            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1 + 1
+            /// films, lists, memberships, releases, session, saved search, settings, film link —
+            /// the shape `seedFullGraph` writes.
+            let expectedObjects = 2 + 2 + 3 + 4 + 1 + 1 + 1 + 1
             r.check("export-verification:written-file-describes-the-library",
                     reparsed.objects.count == expectedObjects,
                     "the produced file re-parses to \(reparsed.objects.count) object(s), expected \(expectedObjects)")
             r.check("export-verification:manifest-survives-the-round-trip",
                     reparsed.manifest["Film"] == 2 && reparsed.manifest["Release"] == 4
                         && reparsed.manifest["ListMembership"] == 3
-                        && reparsed.manifest["SavedSearchObject"] == 1,
+                        && reparsed.manifest["SavedSearchObject"] == 1
+                        && reparsed.manifest["FilmLink"] == 1,
                     "manifest \(reparsed.manifest.sorted { $0.key < $1.key })")
             r.metric("verify-probe-xml-size", Double(written.count), "bytes")
         } catch {

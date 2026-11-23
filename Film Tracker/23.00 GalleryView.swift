@@ -51,7 +51,7 @@ enum GalleryReuse {
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
              .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch, .tag:
             return true
-        case .libraryItem(.insights), .libraryItem(.imports):
+        case .libraryItem(.insights), .libraryItem(.imports), .libraryItem(.recommendations):
             return false
         }
     }

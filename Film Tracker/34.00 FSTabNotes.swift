@@ -41,6 +41,13 @@ final class FSTabNotes: FilmSheetTabChangeTracking {
     /// writer and reader cannot disagree. Sharing it also keeps DateFormatter setup to one instance app-wide.
     private static let editDateFormatter = StorageDateFormatters.dash
 
+    /// The Release field's drop-down rows: one per release the library holds for this film, so a new
+    /// film offers none. Read from the saved film each time, so releases saved while the sheet is open count.
+    var releaseSuggestions: [String] {
+        guard let owner, owner.isEditMode, let film = owner.coordinator.getFilm(owner.filmID) else { return [] }
+        return RSBHelpers.releaseUsedSuggestions(for: film.releases)
+    }
+
     // MARK: - Initialization
     init(owner: FilmSheet) {
         self.owner = owner
@@ -319,7 +326,9 @@ struct FSTabNotesView: View {
                     label("Release:")
                     /// AppKit, drawn and behaving as the SwiftUI `.roundedBorder` TextField it
                     /// replaced (RoundedTextField, 30.10, which records the parity checks).
-                    RoundedTextField(text: $viewModel.releaseUsed, placeholder: "Release Used")
+                    /// Suggests the film's cataloged releases, spelled compactly (RSBHelpers.releaseUsedSuggestions).
+                    RoundedTextField(text: $viewModel.releaseUsed, placeholder: "Release Used",
+                                     suggestedValues: { [viewModel] in viewModel.releaseSuggestions })
                 }
             }
             /// Software Tools, top-aligned. Built through the shared row so this body never reads `tools`; see

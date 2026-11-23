@@ -306,6 +306,9 @@ struct MainView: View, Loggable {
         case .smartList where !Preferences.smartLists:
             /// Smart lists were turned off while the search was open.
             return .libraryItem(.allFilms)
+        case .libraryItem(.recommendations) where !Preferences.recommendationsEnabled:
+            /// Recommendations was turned off while the search was open.
+            return .libraryItem(.allFilms)
         case .tag(let tag) where !TagActions.canStayOpen(tag, in: dataCoordinator):
             /// The tag has no row to return to: Most-Used Tags was hidden while the search was
             /// open, or the tag left the library (deleted, renamed, or its last film lost it).
@@ -556,6 +559,9 @@ private struct MainContentSwitcher: View {
         case .libraryItem(.imports):
             ImportsView()
                 .id("imports")
+        case .libraryItem(.recommendations):
+            RecommendationsView()
+                .id("recommendations")
         case .libraryItem(.allFilms), .libraryItem(.unwatched), .libraryItem(.recents),
              .libraryItem(.filmQueue), .libraryItem(.search), .smartList, .list, .savedSearch, .tag:
             /// One GalleryView for all of them. A move between them is an in-place view switch, the same path a

@@ -410,6 +410,18 @@ struct FilmTrackerApp: App, Loggable {
         /// The task handle is stored on AppState so AppDelegate can cancel it at shutdown,
         /// preventing the poster pruner from running file-system deletions mid-process-exit.
         appState.startDeferredMaintenance(coordinator: coordinator)
+
+        /// Recommendations (Preferences.recommendationsEnabled): compute the picks now, overlapping the
+        /// background launch work above, so the view is ready sooner. Safe to overlap because:
+        /// - it runs only after the store guards, on the fully loaded library (both cache paths finish
+        ///   their loading and MetadataCache rebuild inside finalizeInitialization, before this point);
+        /// - it reads only in-memory snapshots and writes only its own stored state, so it has no
+        ///   ordering with the smart lists, posters, notifications or maintenance;
+        /// - it is queued last, at utility priority, so the launch work above starts first, and the
+        ///   engine runs detached; the main actor only gathers the input and stores the result (a few ms).
+        if Preferences.recommendationsEnabled {
+            RecommendationsModel.shared.prewarm()
+        }
     }
 }
 
@@ -874,6 +886,8 @@ enum LibraryItem: Hashable {
     case insights
     case imports
     case filmQueue
+    /// Preferences.recommendationsEnabled: reachable only while the flag is on.
+    case recommendations
     case search
 
     /// The section's name: the window title while it shows, its LeftSidebar row where the row is the section
@@ -886,6 +900,7 @@ enum LibraryItem: Hashable {
         case .insights:   return "Insights"
         case .imports:   return "Imports"
         case .filmQueue: return "Queue"
+        case .recommendations: return "Recommendations"
         case .search:    return "Search"
         }
     }

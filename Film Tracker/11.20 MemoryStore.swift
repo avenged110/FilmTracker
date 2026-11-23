@@ -495,7 +495,7 @@ final class MemoryStore: Loggable {
         switch viewID {
         case .savedSearch, .tag, .smartList, .unwatched, .recents, .insights, .search:
             cacheViewID = viewID.purchaseFormatScope == nil ? .allFilms : viewID
-        case .allFilms, .list, .filmQueue, .imports:
+        case .allFilms, .list, .filmQueue, .imports, .recommendations:
             cacheViewID = viewID
         }
         let cacheKey = CacheKey(viewID: cacheViewID, sortOption: sortOption, direction: direction,
@@ -515,9 +515,10 @@ final class MemoryStore: Loggable {
         case .list(let listID):
             guard let list = lists[listID] else { return [] }
             baseFilmIDs = Array(list.filmIDs)
-        case .filmQueue, .imports:
+        case .filmQueue, .imports, .recommendations:
             /// The Film Queue orders films by section (Up Next → Soon → Later) via the
-            /// grouped path below, not by a flat union sort; Imports shows no films.
+            /// grouped path below, not by a flat union sort; Imports and Recommendations show no
+            /// gallery films.
             baseFilmIDs = []
         case .allFilms, .smartList, .unwatched, .recents, .insights, .search, .savedSearch, .tag:
             baseFilmIDs = Array(films.keys)
@@ -1063,7 +1064,7 @@ final class MemoryStore: Loggable {
         /// Collect the keys to remove, then remove each one in place, to avoid copying the dictionary.
         let keysToRemove = cachedViews.keys.filter { key in
             switch key.viewID {
-            case .allFilms, .smartList, .unwatched, .recents, .insights, .imports, .search, .filmQueue,
+            case .allFilms, .smartList, .unwatched, .recents, .insights, .imports, .recommendations, .search, .filmQueue,
                  .savedSearch, .tag:
                 /// (.savedSearch and .tag never key a cache entry; getFilms maps them to .allFilms.)
                 /// .filmQueue and .unwatched are whole-library views: a film's sort keys, watched

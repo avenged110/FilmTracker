@@ -992,6 +992,7 @@ struct SettingsSnapshot: Sendable, Equatable {
     let iCalIntegration: Bool?
     let manualExtQuery: Bool?
     let smartLists: Bool?
+    let recommendations: Bool?
     let showTagsInSidebar: Int?
     let sidebarTagOrder: Int?
     let excludeQueuedFromUpForRotation: Bool?
@@ -1058,6 +1059,7 @@ struct SettingsSnapshot: Sendable, Equatable {
          iCalIntegration: Bool? = nil,
          manualExtQuery: Bool? = nil,
          smartLists: Bool? = nil,
+         recommendations: Bool? = nil,
          showTagsInSidebar: Int? = nil,
          sidebarTagOrder: Int? = nil,
          excludeQueuedFromUpForRotation: Bool? = nil,
@@ -1112,6 +1114,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.iCalIntegration = iCalIntegration
         self.manualExtQuery = manualExtQuery
         self.smartLists = smartLists
+        self.recommendations = recommendations
         self.showTagsInSidebar = showTagsInSidebar
         self.sidebarTagOrder = sidebarTagOrder
         self.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation
@@ -1171,6 +1174,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         self.iCalIntegration = object.iCalIntegration
         self.manualExtQuery = object.manualExtQuery
         self.smartLists = object.smartLists
+        self.recommendations = object.recommendations
         self.showTagsInSidebar = object.showTagsInSidebar
         self.sidebarTagOrder = object.sidebarTagOrder
         self.excludeQueuedFromUpForRotation = object.excludeQueuedFromUpForRotation
@@ -1230,6 +1234,7 @@ struct SettingsSnapshot: Sendable, Equatable {
         object.iCalIntegration = iCalIntegration
         object.manualExtQuery = manualExtQuery
         object.smartLists = smartLists
+        object.recommendations = recommendations
         object.showTagsInSidebar = showTagsInSidebar
         object.sidebarTagOrder = sidebarTagOrder
         object.excludeQueuedFromUpForRotation = excludeQueuedFromUpForRotation

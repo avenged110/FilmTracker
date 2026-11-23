@@ -631,12 +631,6 @@ struct ReorderableStringList: View {
                 },
                 importPopover: { importPopoverContent }
             )
-            /// Brings this row back into the viewport after a commit pushes it
-            /// down. Attached here rather than inside `StringListAddRow` because
-            /// the token belongs to the list, which is what knows an entry was
-            /// appended. A background contributes no layout and consumes no
-            /// events, so the row is unaffected.
-            .background(ListAddRowRevealer(token: addRevealToken))
             .listRowInsets(ListRowMetrics.rowInsets)
         }
         /// List style, sizing, clip, border, and shadow — one modifier, shared with the
@@ -648,6 +642,11 @@ struct ReorderableStringList: View {
         /// distinctly darker bottom edge. The full account is on
         /// `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
+        /// Brings the add row back into the viewport after a commit pushes it down. On the
+        /// container, not the add row: the `List` makes row views only for rows inside its
+        /// visible rect, so an add row pushed below the fold may have no view to measure.
+        /// See `ListAddRowRevealer`.
+        .background(ListAddRowRevealer(token: addRevealToken))
         /// The placeholder is the add row's own label, a real row with the list's own leading inset.
     }
 
@@ -1234,6 +1233,8 @@ private struct EditingTextField: NSViewRepresentable {
         func control(_ control: NSControl,
                      textView: NSTextView,
                      doCommandBy commandSelector: Selector) -> Bool {
+            /// A scroll closing the suggestions drop-down, not Escape.
+            if suggestionsDelegate?.consumesClosingCommand(commandSelector) == true { return true }
             switch commandSelector {
             case #selector(NSResponder.insertNewline(_:)):
                 /// The field editor holds the authoritative text until editing
@@ -1341,9 +1342,20 @@ enum ValueSuggestions {
     /// nothing typed, the most-used values. Values whose key is in `excluding` are left out.
     static func ranked(_ vocabulary: Vocabulary, in coordinator: DataCoordinator, typed: String,
                        excluding: Set<String> = []) -> [String] {
+        tiered(entries(vocabulary, in: coordinator).lazy.filter { !excluding.contains($0.key) }, typed: typed)
+    }
+
+    /// Up to `limit` of a fixed list of `values` for `typed`, by the same tiers as `ranked`, keeping the
+    /// list's own order within each tier. For a field whose suggestions come from somewhere other than
+    /// a saved vocabulary (the Notes tab's Release field, RSBHelpers.releaseUsedSuggestions).
+    static func filtered(_ values: [String], typed: String) -> [String] {
+        tiered(values.lazy.map { Entry(key: SearchText.key($0), display: $0) }, typed: typed)
+    }
+
+    private static func tiered(_ entries: some Sequence<Entry>, typed: String) -> [String] {
         let typedKey = SearchText.key(typed)
         var tiers: [[String]] = [[], [], []]
-        for entry in entries(vocabulary, in: coordinator) where !excluding.contains(entry.key) {
+        for entry in entries {
             let tier: Int
             if typedKey.isEmpty || entry.key.hasPrefix(typedKey) {
                 tier = 0
@@ -1445,6 +1457,20 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
     private weak var mirroredEditor: NSTextView?
     private weak var mirroredStorage: NSTextStorage?
 
+    /// The drop-down is a child window of the field's window (`_NSSuggestionsMenuWindow`,
+    /// measured 2026-11-21), placed once under the field. Scrolling whatever the field sits in
+    /// leaves it behind, over other content and past the sheet's edge, so a scroll closes it,
+    /// as losing focus does. Each enclosing clip view's scroll position while mirroring, keyed
+    /// by clip view: a bounds change that leaves the origin where it was (a resize) is not a scroll.
+    private var clipOrigins: [ObjectIdentifier: NSPoint] = [:]
+    /// Set when rows are asked for, cleared once a scroll has closed the drop-down, so a long
+    /// scroll issues one close rather than one per tick. AppKit offers no "drop-down closed"
+    /// callback, so this can be true with the drop-down already closed (Escape, a pick); the
+    /// close is then swallowed by the owner, see `consumesClosingCommand`.
+    private var menuMayBeOpen = false
+    /// True only while `closeMenu` issues its command; see `consumesClosingCommand`.
+    private var isClosingMenu = false
+
     init(rank: @escaping (_ typed: String) -> [String],
          onSelect: @escaping (_ field: NSTextField, _ value: String) -> Void,
          onTextChange: @escaping (_ value: String) -> Void) {
@@ -1462,6 +1488,7 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
         let typed = editor?.string ?? textField.stringValue
         rankTask?.cancel()
         rankTask = nil
+        menuMayBeOpen = true
         /// Every value drop-down follows the search suggestions setting, as the search
         /// field's own does.
         guard Preferences.showSearchSuggestions else {
@@ -1512,6 +1539,17 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
         mirroredStorage = storage
         NotificationCenter.default.addObserver(self, selector: #selector(storageDidProcessEditing(_:)),
                                                name: NSTextStorage.didProcessEditingNotification, object: storage)
+        /// Every scroll view the field sits in, innermost first: a list's own table and the
+        /// sheet's page both carry the field when they scroll.
+        var scrollView = field.enclosingScrollView
+        while let current = scrollView {
+            let clip = current.contentView
+            clip.postsBoundsChangedNotifications = true
+            clipOrigins[ObjectIdentifier(clip)] = clip.bounds.origin
+            NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsDidChange(_:)),
+                                                   name: NSView.boundsDidChangeNotification, object: clip)
+            scrollView = current.enclosingScrollView
+        }
     }
 
     private func stopMirroring() {
@@ -1519,6 +1557,8 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
             NotificationCenter.default.removeObserver(self, name: NSTextStorage.didProcessEditingNotification,
                                                       object: storage)
         }
+        NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: nil)
+        clipOrigins.removeAll()
         mirroredField = nil
         mirroredEditor = nil
         mirroredStorage = nil
@@ -1535,6 +1575,45 @@ final class ValueSuggestionsDelegate: NSObject, NSTextSuggestionsDelegate {
         /// leave the value alone.
         guard storage.editedMask.contains(.editedCharacters) else { return }
         onTextChange(storage.string)
+    }
+
+    // MARK: Closing on scroll
+
+    @objc private func clipBoundsDidChange(_ note: Notification) {
+        guard let field = mirroredField, let editor = mirroredEditor,
+              field.currentEditor() === editor else {
+            stopMirroring()
+            return
+        }
+        guard let clip = note.object as? NSClipView else { return }
+        let key = ObjectIdentifier(clip)
+        let origin = clip.bounds.origin
+        guard clipOrigins[key] != origin else { return }
+        clipOrigins[key] = origin
+        guard menuMayBeOpen else { return }
+        closeMenu(editor)
+    }
+
+    /// Closes the drop-down and leaves the field editing, its text as typed: what Escape does
+    /// while it is open. AppKit has no public call for it, so this sends the field editor the
+    /// command Escape sends. While the drop-down is open its controller takes the command
+    /// first and the field's delegate never sees it; when it was already closed, the command
+    /// reaches the delegate, which swallows it (`consumesClosingCommand`) rather than treating
+    /// it as Escape. Measured 2026-11-21 in a standalone probe: closes, text unchanged, still editing.
+    private func closeMenu(_ editor: NSTextView) {
+        menuMayBeOpen = false
+        /// An answer still being ranked would reopen it.
+        rankTask?.cancel()
+        rankTask = nil
+        isClosingMenu = true
+        editor.doCommand(by: #selector(NSResponder.cancelOperation(_:)))
+        isClosingMenu = false
+    }
+
+    /// True for the command `closeMenu` sends, while it sends it. Each owner's
+    /// `control(_:textView:doCommandBy:)` checks this first and returns true when it is.
+    func consumesClosingCommand(_ commandSelector: Selector) -> Bool {
+        isClosingMenu && commandSelector == #selector(NSResponder.cancelOperation(_:))
     }
 }
 

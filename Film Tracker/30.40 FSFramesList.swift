@@ -1170,10 +1170,6 @@ struct ReorderableFramesList: View {
                 /// with a row insert reads as the label being dragged sideways by
                 /// the row rather than as the column simply appearing.
                 .animation(nil, value: rowCount == 0)
-                /// Brings this row back into the viewport after a commit pushes
-                /// it down. A background contributes no layout and consumes no
-                /// events, so the row is unaffected.
-                .background(ListAddRowRevealer(token: addRevealToken))
                 .listRowInsets(ListRowMetrics.rowInsets)
         }
         /// List style, sizing, clip, border, and shadow — one modifier, shared with the
@@ -1183,6 +1179,11 @@ struct ReorderableFramesList: View {
         /// escaping it as a one-point sliver below the border. The full account is
         /// on `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
+        /// Brings the add row back into the viewport after a commit pushes it down. On the
+        /// container, not the add row: the `List` makes row views only for rows inside its
+        /// visible rect, so an add row pushed below the fold may have no view to measure.
+        /// See `ListAddRowRevealer`.
+        .background(ListAddRowRevealer(token: addRevealToken))
         /// Scroll detection, done in AppKit rather than in SwiftUI.
         /// `ScrollActivityObserver` (30.20 FSControlHelpers.swift) watches the
         /// enclosing clip view's bounds — the signal AppKit already posts for its

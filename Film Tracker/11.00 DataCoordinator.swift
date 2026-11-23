@@ -64,7 +64,7 @@ extension ViewIdentifier {
             /// The films carrying the tag, worked out afresh on every load, as a saved search's are.
             return .set(SidebarTags.filmIDs(taggedWith: tag, in: memoryStore.getAllFilms()))
 
-        case .allFilms, .list, .filmQueue, .insights, .imports, .search:
+        case .allFilms, .list, .filmQueue, .insights, .imports, .recommendations, .search:
             return .unrestricted
         }
     }
@@ -1251,7 +1251,7 @@ final class DataCoordinator: Loggable {
             /// it is judged as a whole: no rows left.
             let selected = InsightsState.shared.selectedReleaseRowIDs.intersection(before)
             return selected.isEmpty ? after.isEmpty : selected.isDisjoint(with: after)
-        case .imports:
+        case .imports, .recommendations:
             return false
         case .allFilms, .list, .filmQueue, .unwatched, .recents, .smartList, .search, .savedSearch, .tag:
             /// Only a film the gallery shows can leave it; a sheet opened on a film from
@@ -1268,7 +1268,7 @@ final class DataCoordinator: Loggable {
         /// Built only for the two views that read lists through tokens.
         var lists: SearchListCatalog { searchListCatalog(adjustedFor: outcome) }
         switch view {
-        case .allFilms, .search, .insights, .imports:
+        case .allFilms, .search, .insights, .imports, .recommendations:
             break
         case .list(let listID):
             guard outcome.listIDs.contains(listID) else { return false }
@@ -1396,7 +1396,7 @@ final class DataCoordinator: Loggable {
             let queued = getFilmQueueFilmIDs()
             guard let section = FilmQueueFilterState.shared.selectedFilter.section else { return !queued.isEmpty }
             return queued.contains { filmQueueSection(forFilm: $0) == section }
-        case .recents, .smartList, .unwatched, .tag, .allFilms, .search, .insights, .imports:
+        case .recents, .smartList, .unwatched, .tag, .allFilms, .search, .insights, .imports, .recommendations:
             guard case .set(let members) = viewID.resolveMembership(memoryStore: memoryStore, smartLists: smartLists)
             else { return hasDatabaseFilms }
             return !members.isEmpty

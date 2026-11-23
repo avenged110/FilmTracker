@@ -113,7 +113,7 @@ final class KeyboardManager {
         if modifiers == [] && event.keyCode == 36 {
             if let keyWindow = uncoveredKeySheet(),
                let activeSheet = appState?.sheetCoordinator.activeSheet,
-               let confirm = Self.returnConfirmAction(for: activeSheet) {
+               let confirm = Self.returnConfirmAction(for: activeSheet, coordinator: appState?.sheetCoordinator) {
                 /// Pass through whenever ANY text is being edited — the first responder is
                 /// an NSTextView in both cases below. The sheet's rule is that an active
                 /// field takes Return first; the field finishes editing (or, for a table
@@ -620,6 +620,8 @@ final class KeyboardManager {
             guard tabNumber <= tabs.count else { return false }
             sheet.selectedTab = tabs[tabNumber - 1]
             return true
+        case .recommendations:
+            return RecSheetNavigation.shared.select(number: tabNumber)
         default:
             /// Other sheets don't support tab navigation
             return false
@@ -641,6 +643,9 @@ final class KeyboardManager {
             let tabs = MultiFilmTab.allCases
             let index = tabs.firstIndex(of: sheet.selectedTab) ?? 0
             sheet.selectedTab = tabs[(index + (forward ? 1 : -1) + tabs.count) % tabs.count]
+            return true
+        case .recommendations:
+            RecSheetNavigation.shared.cycle(forward: forward)
             return true
         default:
             return false
@@ -846,7 +851,7 @@ final class KeyboardManager {
 
     /// What a bare Return saves in `sheet`, when it may save now: the FilmSheet's or the
     /// MultiFilmSheet's confirm, nil for any other sheet or while saving is not allowed.
-    private static func returnConfirmAction(for sheet: AppSheet) -> (() -> Void)? {
+    private static func returnConfirmAction(for sheet: AppSheet, coordinator: SheetCoordinator?) -> (() -> Void)? {
         switch sheet.content {
         case .film(_, let filmSheet):
             guard filmSheet.canConfirm, !filmSheet.isConfirming else { return nil }
@@ -854,6 +859,9 @@ final class KeyboardManager {
         case .multiFilm(let multiFilmSheet):
             guard multiFilmSheet.canConfirm else { return nil }
             return { multiFilmSheet.confirm() }
+        /// Sheets whose one button is Close: Return closes them, as it does the Settings sheet.
+        case .tags(.viewAll), .recommendations:
+            return { [weak coordinator] in coordinator?.dismissSheet() }
         default:
             return nil
         }

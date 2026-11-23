@@ -354,7 +354,7 @@ let sectionDividerDecorationKind = "SectionDividerDecoration"
 final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
     /// NSObject's isEqual, hash, and copy are nonisolated, but NSCollectionViewLayoutAttributes is @MainActor. The
     /// fields therefore sit behind a Mutex, so nonisolated access is checked. Contention is negligible.
-    private struct Fields { var section: GallerySection?; var filmCount = 0 }
+    private struct Fields { var section: GallerySection?; var filmCount = 0; var subtitle: String? }
     private nonisolated let fields = Mutex(Fields())
 
     nonisolated var section: GallerySection? {
@@ -364,6 +364,13 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
     nonisolated var filmCount: Int {
         get { fields.withLock { $0.filmCount } }
         set { fields.withLock { $0.filmCount = newValue } }
+    }
+    /// An optional line under the section label, in the count's type. Only a layout that makes its band
+    /// `SectionDividerDecorationView.subtitleHeight` taller sets it (the Recommendations grid); every
+    /// gallery band leaves it nil and draws exactly as before.
+    nonisolated var subtitle: String? {
+        get { fields.withLock { $0.subtitle } }
+        set { fields.withLock { $0.subtitle = newValue } }
     }
 
     /// Copies must carry `section`. Without it, a copy would read as "no label" at unpredictable moments.
@@ -381,6 +388,7 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
     override func isEqual(_ object: Any?) -> Bool {
         guard let other = object as? SectionDividerLayoutAttributes else { return false }
         return super.isEqual(object) && other.section == section && other.filmCount == filmCount
+            && other.subtitle == subtitle
     }
 
     override var hash: Int {
@@ -388,6 +396,7 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
         hasher.combine(super.hash)
         hasher.combine(section)
         hasher.combine(filmCount)
+        hasher.combine(subtitle)
         return hasher.finalize()
     }
 }
@@ -398,6 +407,14 @@ final class SectionDividerLayoutAttributes: NSCollectionViewLayoutAttributes {
 final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
     private let sectionLabel = NSTextField(labelWithString: "")
     private let filmCountLabel = NSTextField(labelWithString: "")
+    /// The optional line under the section label (SectionDividerLayoutAttributes.subtitle). It is created
+    /// on first use, so a band without one has exactly the subviews and constraints it always had.
+    private var subtitleLabel: NSTextField?
+    /// The section label's bottom constraint while no subtitle shows. A subtitle swaps it for its own pair.
+    private var sectionLabelBottom: NSLayoutConstraint?
+    private var subtitleConstraints: [NSLayoutConstraint] = []
+    /// What a band with a subtitle adds to SmoothResizingGridLayout.dividerHeight: the line and its gap.
+    static let subtitleHeight: CGFloat = 16
     /// A custom hairline view, since NSBox's separator draws at a fixed thickness.
     private let separatorLine = NSView()
     private static let separatorThickness: CGFloat = 2.0
@@ -433,6 +450,8 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         separatorLine.translatesAutoresizingMaskIntoConstraints = false
         addSubview(separatorLine)
 
+        let sectionLabelBottom = sectionLabel.bottomAnchor.constraint(equalTo: separatorLine.topAnchor, constant: -6)
+        self.sectionLabelBottom = sectionLabelBottom
         NSLayoutConstraint.activate([
             separatorLine.leadingAnchor.constraint(equalTo: leadingAnchor),
             separatorLine.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -440,7 +459,7 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
             separatorLine.heightAnchor.constraint(equalToConstant: Self.separatorThickness),
 
             sectionLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            sectionLabel.bottomAnchor.constraint(equalTo: separatorLine.topAnchor, constant: -6),
+            sectionLabelBottom,
 
             filmCountLabel.leadingAnchor.constraint(greaterThanOrEqualTo: sectionLabel.trailingAnchor, constant: 8),
             filmCountLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
@@ -486,6 +505,45 @@ final class SectionDividerDecorationView: NSView, NSCollectionViewElement {
         guard let attrs = layoutAttributes as? SectionDividerLayoutAttributes,
               let section = attrs.section else { return }
         setLabels(section: section, filmCount: attrs.filmCount)
+        setSubtitle(attrs.subtitle)
+    }
+
+    /// Shows or hides the line under the section label. Nil, the gallery's case, changes nothing unless a
+    /// subtitle was shown before, and then restores the original constraint.
+    private func setSubtitle(_ text: String?) {
+        guard text != nil || subtitleLabel != nil else { return }
+        let label: NSTextField
+        if let subtitleLabel {
+            label = subtitleLabel
+        } else {
+            label = NSTextField(labelWithString: "")
+            label.font = filmCountLabel.font
+            label.textColor = .secondaryLabelColor
+            label.alignment = .left
+            label.lineBreakMode = .byTruncatingTail
+            label.maximumNumberOfLines = 1
+            label.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(label)
+            subtitleLabel = label
+            subtitleConstraints = [
+                label.leadingAnchor.constraint(equalTo: leadingAnchor),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+                label.bottomAnchor.constraint(equalTo: separatorLine.topAnchor, constant: -6),
+                sectionLabel.bottomAnchor.constraint(equalTo: label.topAnchor, constant: -2),
+            ]
+        }
+        let shows = !(text ?? "").isEmpty
+        if label.stringValue != (text ?? "") { label.stringValue = text ?? "" }
+        label.toolTip = shows ? text : nil
+        label.isHidden = !shows
+        /// Deactivation first, so the two placements of the section label are never active together.
+        if shows {
+            sectionLabelBottom?.isActive = false
+            NSLayoutConstraint.activate(subtitleConstraints)
+        } else {
+            NSLayoutConstraint.deactivate(subtitleConstraints)
+            sectionLabelBottom?.isActive = true
+        }
     }
 
     /// A CALayer color does not follow appearance changes, so it is re-resolved when the appearance changes.

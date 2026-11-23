@@ -509,11 +509,12 @@ final class SearchController: Loggable {
         let request = SearchSuggestionRequest(
             field: field, typed: typed,
             lists: field == .list ? source.searchListCatalog().entries.map { ($0.name, $0.kind) } : [],
-            context: suggestionContext())
+            context: suggestionContext(),
+            focus: currentFocus())
         let vocabulary = self.vocabulary
-        let scope = field?.rawValue ?? SearchHeuristics.textScope
+        let scope = field?.rawValue ?? SearchHeuristics.titleScope
         suggestionTask = TaskHandle(Task { [weak self] in
-            let learned = await SearchHeuristics.shared.weights(scope: scope)
+            let learned = await SearchHeuristics.shared.learned(scope: scope, typed: typed)
             /// A detached task does not inherit cancellation, so it is forwarded by hand.
             let work = Task.detached(priority: .userInitiated) {
                 SearchSuggestionRanker.rank(request, vocabulary: vocabulary, learned: learned,
@@ -619,7 +620,7 @@ final class SearchController: Loggable {
             lists: field == .list ? source.searchListCatalog().entries.map { ($0.name, $0.kind) } : [],
             context: SearchContext())
         let vocabulary = self.vocabulary
-        let learned = await SearchHeuristics.shared.weights(scope: field.rawValue)
+        let learned = await SearchHeuristics.shared.learned(scope: field.rawValue, typed: typed)
         let work = Task.detached(priority: .userInitiated) {
             SearchSuggestionRanker.rank(request, vocabulary: vocabulary, learned: learned, limit: limit)
         }
@@ -654,10 +655,14 @@ final class SearchController: Loggable {
     }
     
     /// Applies a picked value suggestion: commits the token, or puts the title in the field.
+    /// The pick teaches the heuristics what was typed for it and which rows were passed over.
     func applySuggestion(_ suggestion: SearchSuggestion) {
         defer { suppressSuggestions() }
+        learnPick(suggestion)
         guard let field = suggestion.field else {
+            typedBeforeTitlePick = getCleanSearchText()
             searchText = suggestion.value
+            recordHeuristic(suggestion.value, scope: SearchHeuristics.titleScope)
             return
         }
         /// An Is or Release value holds comma-separated terms, and its suggestions are for
@@ -691,6 +696,90 @@ final class SearchController: Loggable {
         suppressSuggestions()
     }
     
+    /// Teaches the heuristics a picked row: the text typed for it, and the rows shown above it
+    /// (up to five) as passed over. List rows are left out: their order is by group first.
+    private func learnPick(_ suggestion: SearchSuggestion) {
+        guard Preferences.showSearchSuggestions, suggestion.field != .list,
+              let (_, typed) = suggestionInput() else { return }
+        let scope = suggestion.field?.rawValue ?? SearchHeuristics.titleScope
+        let index = valueSuggestions.firstIndex(of: suggestion) ?? 0
+        let above = valueSuggestions[..<index].suffix(5).map(\.value)
+        Task(priority: .background) {
+            await SearchHeuristics.shared.recordInput(typed, value: suggestion.value, scope: scope)
+            await SearchHeuristics.shared.recordSkips(Array(above), scope: scope)
+        }
+    }
+
+    // MARK: - Film Use
+
+    /// The freeform text typed by hand before a title suggestion replaced it, for the input
+    /// history of a film then opened. Cleared when the search ends.
+    private var typedBeforeTitlePick: String?
+    private var selectionDwell: TaskHandle?
+    /// The single film last selected, so a selection set again unchanged (a reload) is not
+    /// counted twice.
+    private var lastSelectedFilm: UUID?
+    private static let selectionDwellDelay: Duration = .seconds(2)
+
+    /// The view the search was started from: the last view other than search itself.
+    private var originView: ViewIdentifier?
+
+    /// A selection changed (SelectionState). One film that stays selected for
+    /// `selectionDwellDelay` was looked at, not passed over on the way to another.
+    func noteSelection(_ ids: Set<UUID>) {
+        let single = ids.count == 1 ? ids.first : nil
+        guard single != lastSelectedFilm else { return }
+        lastSelectedFilm = single
+        guard let id = single, Preferences.showSearchSuggestions else {
+            selectionDwell = nil
+            return
+        }
+        selectionDwell = TaskHandle(Task { [weak self] in
+            do { try await Task.sleep(for: Self.selectionDwellDelay) } catch { return }
+            guard let self, SelectionState.shared.untrackedSelectedFilmIDs == [id] else { return }
+            self.creditFilm(id, amount: 0.25)
+        })
+    }
+
+    /// A film's sheet was opened to edit it.
+    func noteFilmSheetOpened(_ id: UUID) {
+        creditFilm(id, amount: 0.5)
+    }
+
+    /// Teaches the heuristics a use of the film. Found through a search with freeform text, it
+    /// counts in full and also as what that text was typed for; otherwise `amount`.
+    private func creditFilm(_ id: UUID, amount: Double) {
+        guard Preferences.showSearchSuggestions, let title = suggestionSource?.getFilm(id)?.name else { return }
+        let typed = isActive && hasContent ? (typedBeforeTitlePick ?? getCleanSearchText()) : ""
+        let scope = SearchHeuristics.titleScope
+        Task(priority: .background) {
+            await SearchHeuristics.shared.record(title, scope: scope, amount: typed.isEmpty ? amount : 1)
+            if !typed.isEmpty { await SearchHeuristics.shared.recordInput(typed, value: title, scope: scope) }
+        }
+    }
+
+    /// What the view the search started from says about the films wanted (SearchFocus).
+    private func currentFocus() -> SearchFocus {
+        let active = ViewStateManager.shared.activeView
+        if !active.isSearch { originView = active }
+        switch originView {
+        case .filmQueue?:
+            return .queue
+        case .smartList(let type)?:
+            switch type {
+            case .upcomingReleases, .purchased, .purchased4K, .purchasedBluray, .purchasedDVD,
+                 .unpurchased, .unpurchased4K, .unpurchasedBluray, .unpurchasedDVD:
+                return .releases
+            default:
+                return .none
+            }
+        case .tag(let tag)?:
+            return .tag(tag.key)
+        default:
+            return .none
+        }
+    }
+
     /// Hides the value suggestions until the field's text is next edited.
     private func suppressSuggestions() {
         suggestionTask = nil
@@ -708,14 +797,13 @@ final class SearchController: Loggable {
         })
     }
     
-    /// Records the search that just ended: as a recent search, and its freeform text in the
-    /// heuristics. A search being left with content in the field is recorded as it stands.
+    /// Records the search that just ended as a recent search. A search being left with content in the field is recorded as it stands.
     /// One the user emptied by hand is recorded as it last stood, unless that was partway
     /// through taking it apart — some of the settled search's pills, and text that the
     /// settled text starts with — in which case it is recorded as it last settled.
     private func commitSearch() {
         settleHandle = nil
-        defer { settledSearch = nil; lastActiveSearch = nil }
+        defer { settledSearch = nil; lastActiveSearch = nil; typedBeforeTitlePick = nil; originView = nil }
         let search: RecentSearch
         if isActive && hasContent {
             search = currentQuery
@@ -738,7 +826,8 @@ final class SearchController: Loggable {
                 recentSearches.removeLast(recentSearches.count - SearchSuggestionLimits.recentSearches)
             }
         }
-        if !search.text.isEmpty { recordHeuristic(search.text, scope: SearchHeuristics.textScope) }
+        /// The freeform text is not learned as typed: a search left at "man on fir" says
+        /// nothing. The film it led to is learned instead, when one is opened (creditFilm).
     }
     
     /// Teaches the heuristics one use of `value`, at background priority. Nothing is

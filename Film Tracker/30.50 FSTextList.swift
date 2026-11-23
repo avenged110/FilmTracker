@@ -205,10 +205,6 @@ struct ReorderableTextList: View {
             /// label and two buttons, and it anchors the add popover, whose state
             /// is `@State` on this view.
             addRow
-                /// Brings this row back into the viewport after a commit pushes
-                /// it down. A background contributes no layout and consumes no
-                /// events, so the row is unaffected.
-                .background(ListAddRowRevealer(token: addRevealToken))
                 .listRowInsets(ListRowMetrics.rowInsets)
         }
         /// List style, sizing, clip, border, and shadow — one modifier, shared with the
@@ -216,6 +212,11 @@ struct ReorderableTextList: View {
         /// in the same order. The order is load-bearing; the full account is on
         /// `listContainerChrome(height:)` (30.20 FSControlHelpers.swift).
         .listContainerChrome(height: listHeight)
+        /// Brings the add row back into the viewport after a commit pushes it down. On the
+        /// container, not the add row: the `List` makes row views only for rows inside its
+        /// visible rect, so an add row pushed below the fold may have no view to measure.
+        /// See `ListAddRowRevealer`.
+        .background(ListAddRowRevealer(token: addRevealToken))
         /// Scroll detection in AppKit rather than SwiftUI. An `NSPopover` is
         /// pinned to the screen rectangle its anchor occupied when presented, so
         /// scrolling the sheet would leave it floating over unrelated content.

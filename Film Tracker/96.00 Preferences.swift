@@ -171,6 +171,13 @@ struct Preferences: Loggable {
     /// import. Implemented in 81.00 RatingsImporter.swift.
     static let importRatingsDebugLogging = false
 
+    /// EXPERIMENT. Allows the Recommendations view: shows its Settings checkbox (Preferences.recommendations,
+    /// which must also be on; see recommendationsEnabled). Together they show a Library row below the Queue, its Left
+    /// Sidebar menu item, and the view itself. `false` leaves the app exactly as it was, with
+    /// no trace of the view; nothing reads or writes the experiment's stored state either.
+    /// Implemented in 29.50 RecommendationsView.swift and 29.51 RecommendationEngine.swift.
+    static let recommendationsExperiment = false
+
     // MARK: - Centralized Internal Constants
     /// Gallery items
     static let cornerRadius: CGFloat = 12
@@ -260,6 +267,8 @@ struct Preferences: Loggable {
             "preferences.showStatusBar"
         static let smartLists =
             "preferences.smartLists"
+        static let recommendations =
+            "preferences.recommendations"
         static let showTagsInSidebar =
             "preferences.showTagsInSidebar"
         static let pinnedTags =
@@ -380,6 +389,7 @@ struct Preferences: Loggable {
     static let largeGalleryGridKey                   = Keys.largeGalleryGrid
     static let showStatusBarKey                      = Keys.showStatusBar
     static let smartListsKey                         = Keys.smartLists
+    static let recommendationsKey                    = Keys.recommendations
     static let showTagsInSidebarKey                  = Keys.showTagsInSidebar
     static let sidebarTagOrderKey                    = Keys.sidebarTagOrder
     static let excludeQueuedFromUpForRotationKey     = Keys.excludeQueuedFromUpForRotation
@@ -441,6 +451,7 @@ struct Preferences: Loggable {
             Keys.largeGalleryGrid: true,
             Keys.showStatusBar: true,
             Keys.smartLists: true,
+            Keys.recommendations: false,
             Keys.showTagsInSidebar: SidebarTagCount.hidden.rawValue,
             Keys.sidebarTagOrder: SidebarTagOrder.mostUsed.rawValue,
             Keys.excludeQueuedFromUpForRotation: true,
@@ -657,6 +668,18 @@ struct Preferences: Loggable {
         set {
             setIfChanged(newValue, forKey: Keys.smartLists,
                 logMessage: "smartLists set to \(newValue)") } }
+
+    /// The user's "Show the recommendations section in the sidebar" checkbox. Read
+    /// `recommendationsEnabled`, which also requires the experiment flag, rather than this.
+    static var recommendations: Bool {
+        get { return defaults.bool(forKey: Keys.recommendations) }
+        set {
+            setIfChanged(newValue, forKey: Keys.recommendations,
+                logMessage: "recommendations set to \(newValue)") } }
+
+    /// The Recommendations gate: the experiment flag and the user's checkbox both on. While it is
+    /// off the view, its sidebar row and menu items are hidden and no engine work runs.
+    static var recommendationsEnabled: Bool { recommendationsExperiment && recommendations }
 
     // MARK: - Tags In Sidebar
     /// The sidebar's Tags section: hidden, or showing the 5, 10, or 20 most-used tags. One

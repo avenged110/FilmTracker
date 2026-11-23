@@ -324,6 +324,8 @@ enum DebugHarness: Loggable {
         case "sort-perf":         result = await sortPerformanceScenario()
         case "ratings-parse":     result = await ratingsParseScenario()
         case "hero-seed":         result = await heroSeedScenario(coordinator: coordinator)
+        /// Not in any suite: the Recommendations experiment's engine on the sandbox library (99.62).
+        case "recommendations":   result = await recommendationsScenario(coordinator: coordinator)
         case "atvq-relay":
             /// Not in any suite: it reaches out to the ATVQ Deployer relay on the network.
             result = HarnessScenarioResult(scenario: scenario)

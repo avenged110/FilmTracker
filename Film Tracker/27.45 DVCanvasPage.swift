@@ -897,7 +897,7 @@ enum DVGrowthCard {
     static let chartHeight: CGFloat = 240
     /// Films between gridlines.
     static let tickStep: Double = 250
-    static let emptyText = "Nothing to plot yet: films need a Date Added, and purchased releases a purchase date."
+    static let emptyText = "Nothing to plot yet: Films need a Date Added, and purchased releases a purchase date."
     static let legend: [(label: String, color: NSColor)] = [("Films", .systemBlue), ("Purchased releases", .systemGreen)]
 
     /// The scope switch: the whole span (the default), or the last five years.
@@ -1157,7 +1157,7 @@ enum DVCanvasSections {
         }
         let eightPlus = stats.ratingsBreakdown.filter { $0.rating >= 8 }.reduce(0) { $0 + $1.count }
         let ratings = DVK.card(title: "Ratings Breakdown", trailing: "\(films(rated)) rated",
-                               subtitle: rated > 0 ? "\(pct(Fmt.percent(eightPlus, of: rated))) of rated films have been given an 8 or higher" : "No ratings yet",
+                               subtitle: rated > 0 ? "\(pct(Fmt.percent(eightPlus, of: rated))) of rated films have been given an 8 or higher." : "No ratings yet.",
                                bottomAligned: true, [DVK.verticalBars(bars, height: 300, spacing: 6)])
 
         /// The tiles and Ownership beside Ratings Breakdown (2:1). Catalog Health beside the Hall of Fame (1:2) closes the section, after

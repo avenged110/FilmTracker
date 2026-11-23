@@ -227,6 +227,7 @@ final class SettingsManager: Loggable {
             iCalIntegration: Preferences.iCalIntegration,
             manualExtQuery: Preferences.manualExtQuery,
             smartLists: Preferences.smartLists,
+            recommendations: Preferences.recommendations,
             showTagsInSidebar: Preferences.showTagsInSidebar.rawValue,
             sidebarTagOrder: Preferences.sidebarTagOrder.rawValue,
             excludeQueuedFromUpForRotation: Preferences.excludeQueuedFromUpForRotation,
@@ -320,6 +321,7 @@ final class SettingsManager: Loggable {
         apply(snapshot.manualExtQuery) { Preferences.manualExtQuery = $0 }
         
         apply(snapshot.smartLists) { Preferences.smartLists = $0 }
+        apply(snapshot.recommendations) { Preferences.recommendations = $0 }
         if let raw = snapshot.showTagsInSidebar,
            let count = Preferences.SidebarTagCount(rawValue: raw) {
             Preferences.showTagsInSidebar = count

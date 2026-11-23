@@ -554,7 +554,7 @@ private struct RuleRow: View {
                     .disabled(excludes || rule.isFieldText)
                     .help(rule.isFieldText ? "Text from the search field always applies."
                           : excludes ? "A rule that excludes films always applies."
-                          : "And: must also match. Or: matching this rule is enough.")
+                          : "And: Must also match. Or: Matching this rule is enough.")
             }
 
             SheetMenuPicker(selection: Binding(
@@ -943,6 +943,8 @@ private struct RuleTextField: NSViewRepresentable {
         /// Escape first and closes.) See RoundedTextField in 30.10 FSTextHelpers.swift.
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
             guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            /// A scroll closing the drop-down, not Escape (ValueSuggestionsDelegate.closeMenu).
+            if suggestions.consumesClosingCommand(commandSelector) { return true }
             return control.tryToPerform(commandSelector, with: nil)
         }
     }

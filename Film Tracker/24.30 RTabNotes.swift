@@ -30,10 +30,11 @@ struct RTabNotes: View {
                 RSBHelpers.textSectionList(
                     title: Fmt.noun(film.tools.count, "Software Tool", plural: "Software Tools"),
                     values: film.tools)
-                /// Two-column section: "HandBrake RF Value" and "Edit Date".
-                HStack(spacing: 12) {
+                /// One-third / two-thirds row: "HB RF Value" takes one column of the three-wide grid RTabDetails uses,
+                /// and "Edit Date" spans the other two, so long dates fit on one line.
+                RSBOneThirdTwoThirdsLayout(spacing: 12) {
                     RSBHelpers.textSection(
-                        title: "HandBrake RF Value",
+                        title: "HB RF Value",
                         value: RSBHelpers.formatNumericalValue(film.editedHBRFValue))
                     editDateSection(editDateString: film.editDate)
                 }

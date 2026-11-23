@@ -1096,6 +1096,11 @@ struct RoundedTextField: NSViewRepresentable {
     let placeholder: String
     /// The saved values to suggest, or nil for none.
     var suggestions: ValueSuggestions.Vocabulary? = nil
+    /// A fixed list to suggest instead of a saved vocabulary, asked for each time the drop-down
+    /// updates and filtered by ValueSuggestions.filtered. Used when `suggestions` is nil.
+    var suggestedValues: (@MainActor () -> [String])? = nil
+    /// True when the field has a drop-down, from either source.
+    private var offersSuggestions: Bool { suggestions != nil || suggestedValues != nil }
     /// Optional: a field hosted outside a FilmSheet (the card profiler) has no coordinator, and
     /// offers no suggestions.
     @Environment(DataCoordinator.self) private var coordinator: DataCoordinator?
@@ -1124,7 +1129,7 @@ struct RoundedTextField: NSViewRepresentable {
         field.isEnabled = context.environment.isEnabled
         field.delegate = context.coordinator
         context.coordinator.library = coordinator
-        if suggestions != nil { field.suggestionsDelegate = context.coordinator.suggestionsDelegate }
+        if offersSuggestions { field.suggestionsDelegate = context.coordinator.suggestionsDelegate }
         return field
     }
 
@@ -1163,7 +1168,11 @@ struct RoundedTextField: NSViewRepresentable {
         /// Made only for a field that offers suggestions; the field holds it weakly.
         private(set) lazy var suggestionsDelegate = ValueSuggestionsDelegate(
             rank: { [weak self] typed in
-                guard let self, let library, let vocabulary = parent.suggestions else { return [] }
+                guard let self else { return [] }
+                if let values = parent.suggestedValues, parent.suggestions == nil {
+                    return ValueSuggestions.filtered(values(), typed: typed)
+                }
+                guard let library, let vocabulary = parent.suggestions else { return [] }
                 return ValueSuggestions.ranked(vocabulary, in: library, typed: typed)
             },
             onSelect: { [weak self] field, value in
@@ -1196,8 +1205,10 @@ struct RoundedTextField: NSViewRepresentable {
         /// field, where it does what Escape does in any other card field. A field without
         /// suggestions is left to AppKit, as the SwiftUI field was.
         func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-            guard parent.suggestions != nil,
+            guard parent.offersSuggestions,
                   commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
+            /// A scroll closing the drop-down, not Escape (ValueSuggestionsDelegate.closeMenu).
+            if suggestionsDelegate.consumesClosingCommand(commandSelector) { return true }
             return control.tryToPerform(commandSelector, with: nil)
         }
     }

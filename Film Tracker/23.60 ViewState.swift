@@ -418,6 +418,8 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
     case recents(RecentsCategory)
     case insights(InsightsCategory)
     case imports(ImportsCategory)
+    /// Preferences.recommendationsEnabled. Not gallery-backed, as Imports is not.
+    case recommendations
     case smartList(SmartListType)
     case search
     case savedSearch(UUID)
@@ -479,6 +481,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .unwatched(let category): return category.glyph
         case .insights: return ViewGlyphs.insights.filled
         case .imports: return ViewGlyphs.importsTitleBarFallback.outline
+        case .recommendations: return ViewGlyphs.recommendations.filled
         }
     }
 
@@ -504,7 +507,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         /// would let each tag's cached state overwrite the others' on disk. A tag that leaves the
         /// library leaves its small entry behind.
         case .tag(let tag): return "tag.\(tag.key)"
-        case .list, .insights, .imports, .search: return nil
+        case .list, .insights, .imports, .recommendations, .search: return nil
         }
     }
 
@@ -522,7 +525,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         switch self {
         case .recents, .smartList, .filmQueue, .unwatched, .savedSearch, .tag:
             return true
-        case .allFilms, .list, .insights, .imports, .search:
+        case .allFilms, .list, .insights, .imports, .recommendations, .search:
             return false
         }
     }
@@ -536,6 +539,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .recents(let category): return "Recents(\(category.rawValue))"
         case .insights(let category): return "Insights(\(category.rawValue))"
         case .imports(let category): return "Imports(\(category.rawValue))"
+        case .recommendations: return "Recommendations"
         case .smartList(let type): return "SmartList(\(type.rawValue))"
         case .search: return "Search"
         case .savedSearch(let id): return "SavedSearch(\(id.uuidString.prefix(8)))"
@@ -560,6 +564,7 @@ enum ViewIdentifier: Hashable, CustomStringConvertible, Sendable {
         case .libraryItem(.recents):    return .recents(RecentsState.shared.selectedCategory)
         case .libraryItem(.insights):    return .insights(InsightsState.shared.selectedCategory)
         case .libraryItem(.imports):    return .imports(ImportsState.shared.selectedCategory)
+        case .libraryItem(.recommendations): return .recommendations
         case .libraryItem(.filmQueue): return .filmQueue
         case .list(let id):             return .list(id)
         case .savedSearch(let id):      return .savedSearch(id)
@@ -730,6 +735,18 @@ extension SidebarItem {
             return ViewCapabilities(
                 showsGalleryChrome: false,
                 statusBar: .summaryAndClassic(.importActivity),
+                isValidSearchExitDestination: false,
+                supportsListGridToggle: false,
+                sortMenuFullyDisabled: true,
+                filterMenuFullyDisabled: true,
+                supportsSectionDividers: false,
+                supportsMultiSelection: false,
+                routesTabFocusToGallery: false)
+
+        case .libraryItem(.recommendations):
+            /// Shows the RightSidebar for the selected pick; one film at a time, and no status bar.
+            return ViewCapabilities(
+                statusBar: nil,
                 isValidSearchExitDestination: false,
                 supportsListGridToggle: false,
                 sortMenuFullyDisabled: true,
@@ -1882,7 +1899,7 @@ final class ViewStateManager: Loggable {
             state.sortDirection = .ascending
             return state
 
-        case .insights, .imports, .search:
+        case .insights, .imports, .recommendations, .search:
             /// These views don't use persisted ViewState: Insights and Imports are not gallery-backed and
             /// manage their own data independently, and Search is always transient (in-session changes are
             /// allowed but never persisted).
@@ -1941,7 +1958,7 @@ final class ViewStateManager: Loggable {
             )
             Self.log("Saved list \(listID.uuidString.prefix(8)) state: \(settings)")
 
-        case .insights, .imports:
+        case .insights, .imports, .recommendations:
             /// Insights and Imports are not gallery-backed and manage their own data / ordering; there is no
             /// per-view sort/filter state to persist here.
             break
@@ -1994,6 +2011,7 @@ final class ViewStateManager: Loggable {
         /// produces a misleading "Loaded 0 films" log entry.
         if case .imports = activeView { return }
         if case .insights = activeView { return }
+        if case .recommendations = activeView { return }
 
         coordinator.loadFilms(
             viewID: activeView,

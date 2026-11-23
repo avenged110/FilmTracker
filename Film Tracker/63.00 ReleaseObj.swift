@@ -1038,18 +1038,18 @@ struct ReleaseOrigin: Sendable {
 
     /// Rows in picker order. `domestic` is first because it is the default.
     static let all: [ReleaseOrigin] = [
-        ReleaseOrigin(name: "United States", demonym: "American",    shortForm: "USA", isRegionA: true),
-        ReleaseOrigin(name: "England",       demonym: "English",     shortForm: "GBR", isRegionA: false),
-        ReleaseOrigin(name: "Canada",        demonym: "Canadian",    shortForm: "CAN", isRegionA: true),
-        ReleaseOrigin(name: "Germany",       demonym: "German",      shortForm: "DEU", isRegionA: false),
-        ReleaseOrigin(name: "Australia",     demonym: "Australian",  shortForm: "AUS", isRegionA: false),
-        ReleaseOrigin(name: "Japan",         demonym: "Japanese",    shortForm: "JPN", isRegionA: true),
-        ReleaseOrigin(name: "France",        demonym: "French",      shortForm: "FRA", isRegionA: false),
-        ReleaseOrigin(name: "New Zealand",   demonym: "New Zealand", shortForm: "NZL", isRegionA: false),
-        ReleaseOrigin(name: "Italy",         demonym: "Italian",     shortForm: "ITA", isRegionA: false),
-        ReleaseOrigin(name: "Finland",       demonym: "Finnish",     shortForm: "FIN", isRegionA: false),
-        ReleaseOrigin(name: "Sweden",        demonym: "Swedish",     shortForm: "SWE", isRegionA: false),
-        ReleaseOrigin(name: "Spain",         demonym: "Spanish",     shortForm: "ESP", isRegionA: false),
+        ReleaseOrigin(name: "United States", demonym: "American",      shortForm: "USA", isRegionA: true),
+        ReleaseOrigin(name: "England",       demonym: "English",       shortForm: "GBR", isRegionA: false),
+        ReleaseOrigin(name: "Canada",        demonym: "Canadian",      shortForm: "CAN", isRegionA: true),
+        ReleaseOrigin(name: "Germany",       demonym: "German",        shortForm: "DEU", isRegionA: false),
+        ReleaseOrigin(name: "Australia",     demonym: "Australian",    shortForm: "AUS", isRegionA: false),
+        ReleaseOrigin(name: "Japan",         demonym: "Japanese",      shortForm: "JPN", isRegionA: true),
+        ReleaseOrigin(name: "France",        demonym: "French",        shortForm: "FRA", isRegionA: false),
+        ReleaseOrigin(name: "New Zealand",   demonym: "New Zealander", shortForm: "NZL", isRegionA: false),
+        ReleaseOrigin(name: "Italy",         demonym: "Italian",       shortForm: "ITA", isRegionA: false),
+        ReleaseOrigin(name: "Finland",       demonym: "Finnish",       shortForm: "FIN", isRegionA: false),
+        ReleaseOrigin(name: "Sweden",        demonym: "Swedish",       shortForm: "SWE", isRegionA: false),
+        ReleaseOrigin(name: "Spain",         demonym: "Spanish",       shortForm: "ESP", isRegionA: false),
     ]
 
     /// The stored names in picker order — what the card's menu offers.

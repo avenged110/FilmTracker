@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1B10C4F5392641758759D101 /* 29.50 RecommendationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 02EBFC1F0E2E4030B2B70F00 /* 29.50 RecommendationsView.swift */; };
 		5A5E5E000000000000000001 /* 51.00 SavedSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000000 /* 51.00 SavedSearch.swift */; };
 		5A5E5E000000000000000003 /* 51.01 SSStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000002 /* 51.01 SSStore.swift */; };
 		5A5E5E000000000000000005 /* 51.10 SSSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A5E5E000000000000000004 /* 51.10 SSSheet.swift */; };
@@ -17,6 +18,7 @@
 		7A6E5E000000000000000003 /* 54.10 TagManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A6E5E000000000000000002 /* 54.10 TagManager.swift */; };
 		83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */; };
 		8DEE0C7CB2A20E44A3DF7CBF /* COPYING in Resources */ = {isa = PBXBuildFile; fileRef = 2317EABA733A9F7CD5E801C9 /* COPYING */; };
+		A0EC2C4B78554CF084DD5816 /* 29.51 RecommendationEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = E85D35E82A0240EDB5185596 /* 29.51 RecommendationEngine.swift */; };
 		A71200000000000000000002 /* 70.10 ReleaseNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A71200000000000000000001 /* 70.10 ReleaseNotifications.swift */; };
 		B0E0ED0000000000000000D2 /* 99.57 DHBulkEdit.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */; };
 		B0E0ED0000000000000000F2 /* 99.58 DHReleaseDuplicate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */; };
@@ -105,6 +107,9 @@
 		CE4E9AC92FDA0B7A000805F7 /* 98.20 UtilityKit.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */; };
 		CE4EE4622EA0EE8000732997 /* 20.10 SelectionState.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */; };
 		CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */; };
+		CE55EE0000000000000055C0 /* 99.62 DHRecommendations.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055C1 /* 99.62 DHRecommendations.swift */; };
+		CE55EE0000000000000055D1 /* 29.52 RecommendationsGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055D0 /* 29.52 RecommendationsGrid.swift */; };
+		CE55EE0000000000000055D3 /* 29.53 RecommendationsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE0000000000000055D2 /* 29.53 RecommendationsSheet.swift */; };
 		CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */; };
 		CE6054DC2F6A95B9009382C0 /* 33.20 ReleaseCard.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */; };
 		CE6054DE2F6CA0BB009382C0 /* 33.10 ReleasesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CE6054DD2F6CA0BB009382C0 /* 33.10 ReleasesView.swift */; };
@@ -170,6 +175,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		02EBFC1F0E2E4030B2B70F00 /* 29.50 RecommendationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.50 RecommendationsView.swift"; sourceTree = "<group>"; };
 		2317EABA733A9F7CD5E801C9 /* COPYING */ = {isa = PBXFileReference; lastKnownFileType = text; path = COPYING; sourceTree = "<group>"; };
 		5A5E5E000000000000000000 /* 51.00 SavedSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.00 SavedSearch.swift"; sourceTree = "<group>"; };
 		5A5E5E000000000000000002 /* 51.01 SSStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "51.01 SSStore.swift"; sourceTree = "<group>"; };
@@ -272,6 +278,9 @@
 		CE4E9AC82FDA0B7A000805F7 /* 98.20 UtilityKit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "98.20 UtilityKit.swift"; sourceTree = "<group>"; };
 		CE4EE4612EA0EE8000732997 /* 20.10 SelectionState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "20.10 SelectionState.swift"; sourceTree = "<group>"; };
 		CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.61 DHResizeSweep.swift"; sourceTree = "<group>"; };
+		CE55EE0000000000000055C1 /* 99.62 DHRecommendations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.62 DHRecommendations.swift"; sourceTree = "<group>"; };
+		CE55EE0000000000000055D0 /* 29.52 RecommendationsGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.52 RecommendationsGrid.swift"; sourceTree = "<group>"; };
+		CE55EE0000000000000055D2 /* 29.53 RecommendationsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.53 RecommendationsSheet.swift"; sourceTree = "<group>"; };
 		CE55EE00000000000000A7B2 /* 99.14 DHLibraryOrders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.14 DHLibraryOrders.swift"; sourceTree = "<group>"; };
 		CE6054DB2F6A95B9009382C0 /* 33.20 ReleaseCard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.20 ReleaseCard.swift"; sourceTree = "<group>"; };
 		CE6054DD2F6CA0BB009382C0 /* 33.10 ReleasesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "33.10 ReleasesView.swift"; sourceTree = "<group>"; };
@@ -333,6 +342,7 @@
 		CEFE00000000000000000B40 /* 99.54 DHImportsRemoval.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.54 DHImportsRemoval.swift"; sourceTree = "<group>"; };
 		CEFE00000000000000000B50 /* 99.55 DHImportsSwitch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "99.55 DHImportsSwitch.swift"; sourceTree = "<group>"; };
 		CEFE00000000000000000B60 /* 28.20 ImportHistory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "28.20 ImportHistory.swift"; sourceTree = "<group>"; };
+		E85D35E82A0240EDB5185596 /* 29.51 RecommendationEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "29.51 RecommendationEngine.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -427,6 +437,10 @@
 				CEC720AC3007967D00A5FE7F /* 29.00 FilmQueue.swift */,
 				83572446DE59045412C58E75 /* 29.10 UpNextSlots.swift */,
 				CCF2D4EABC0E20861B227B83 /* 29.20 ATVQIntegration.swift */,
+				02EBFC1F0E2E4030B2B70F00 /* 29.50 RecommendationsView.swift */,
+				E85D35E82A0240EDB5185596 /* 29.51 RecommendationEngine.swift */,
+				CE55EE0000000000000055D2 /* 29.53 RecommendationsSheet.swift */,
+				CE55EE0000000000000055D0 /* 29.52 RecommendationsGrid.swift */,
 				CE2A1F9D2E9F1A4A00EB1C02 /* 30.00 FilmSheet.swift */,
 				CED4BA052F850CB300DE89EF /* 30.01 FilmSheetView.swift */,
 				CE42AD4F2EE03B410096D62D /* 30.10 FSTextHelpers.swift */,
@@ -533,6 +547,7 @@
 				B0E0ED0000000000000000D1 /* 99.57 DHBulkEdit.swift */,
 				B0E0ED0000000000000000F1 /* 99.58 DHReleaseDuplicate.swift */,
 				CE55EE0000000000000055AD /* 99.61 DHResizeSweep.swift */,
+				CE55EE0000000000000055C1 /* 99.62 DHRecommendations.swift */,
 			);
 			path = DebugHarness;
 			sourceTree = "<group>";
@@ -739,6 +754,7 @@
 				CEFE00000000000000000024 /* 99.50 DHCardProfile.swift in Sources */,
 				CEFE00000000000000000092 /* 99.52 DHCurrencyPlaceholder.swift in Sources */,
 				CE55EE0000000000000055AC /* 99.61 DHResizeSweep.swift in Sources */,
+				CE55EE0000000000000055C0 /* 99.62 DHRecommendations.swift in Sources */,
 				CE55EE00000000000000A7B1 /* 99.14 DHLibraryOrders.swift in Sources */,
 				CEFD000000000000000003E9 /* 85.40 PDFExporter.swift in Sources */,
 				CEFD000000000000000003EB /* 85.00 PDFCore.swift in Sources */,
@@ -748,6 +764,10 @@
 				CEC720AD3007967D00A5FE7F /* 29.00 FilmQueue.swift in Sources */,
 				83D7EC01B3C36BA5CE592EE9 /* 29.10 UpNextSlots.swift in Sources */,
 				EEBB2437EE8B6B1B98669D7F /* 29.20 ATVQIntegration.swift in Sources */,
+				1B10C4F5392641758759D101 /* 29.50 RecommendationsView.swift in Sources */,
+				A0EC2C4B78554CF084DD5816 /* 29.51 RecommendationEngine.swift in Sources */,
+				CE55EE0000000000000055D3 /* 29.53 RecommendationsSheet.swift in Sources */,
+				CE55EE0000000000000055D1 /* 29.52 RecommendationsGrid.swift in Sources */,
 				CE2A1F562E972BDC00EB1C02 /* 42.00 STabImport.swift in Sources */,
 				CE42AD7C2EF63E700096D62D /* 10.30 KeyboardManager.swift in Sources */,
 				CECF3DE32EB746A200D7897A /* 12.00 MenuBar.swift in Sources */,
@@ -897,7 +917,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 149;
+				CURRENT_PROJECT_VERSION = 163;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;
@@ -948,7 +968,7 @@
 				CODE_SIGN_ENTITLEMENTS = "Film Tracker/Film_Tracker.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 149;
+				CURRENT_PROJECT_VERSION = 163;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_APP_SANDBOX = YES;

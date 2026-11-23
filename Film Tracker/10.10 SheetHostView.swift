@@ -27,6 +27,8 @@ enum SheetContent {
     case savedSearch(SavedSearchSheet.Mode)
     /// Renaming a tag, or every tag in the library (TagSheet).
     case tags(TagSheet.Mode)
+    /// Preferences.recommendationsEnabled: rating, tuning and the engine's findings.
+    case recommendations
 }
 
 /// Unified sheet wrapper with stable ID
@@ -48,6 +50,7 @@ struct AppSheet: Identifiable, Equatable {
         case .upNextSlot: return "Up Next Slot"
         case .savedSearch: return "Saved Search"
         case .tags: return "Tag Sheet"
+        case .recommendations: return "Recommendations"
         }
     }
     
@@ -83,6 +86,10 @@ struct AppSheet: Identifiable, Equatable {
 
     static func savedSearch(_ mode: SavedSearchSheet.Mode) -> AppSheet {
         AppSheet(id: "savedSearch", content: .savedSearch(mode))
+    }
+
+    static func recommendations() -> AppSheet {
+        AppSheet(id: "recommendations", content: .recommendations)
     }
 
     static func tags(_ mode: TagSheet.Mode) -> AppSheet {
@@ -300,6 +307,11 @@ struct SheetHostView: View, Loggable {
             TagSheet(mode: mode)
                 .environment(dataCoordinator)
                 .environment(sheetCoordinator)
+
+        case .recommendations:
+            RecommendationsSheet()
+                .environment(dataCoordinator)
+                .environment(sheetCoordinator)
         }
     }
     
@@ -340,6 +352,8 @@ struct SheetHostView: View, Loggable {
             present(.savedSearch(mode))
         case .showTagSheet(let mode):
             present(.tags(mode))
+        case .showRecommendationsSheet:
+            present(.recommendations())
         /// Other commands handled elsewhere
         default:
             break
@@ -410,6 +424,8 @@ struct SheetHostView: View, Loggable {
 
     /// The tail all three film paths share: wire the sheet's dismissal and register it.
     private func presentFilmSheet(_ filmSheet: FilmSheet, filmID: UUID?) {
+        /// Opening a film to edit it teaches the search suggestions which films are in use.
+        if let filmID { SearchController.shared.noteFilmSheetOpened(filmID) }
         filmSheet.dismissHandler = { [weak sheetCoordinator] in
             sheetCoordinator?.dismissSheet()
         }

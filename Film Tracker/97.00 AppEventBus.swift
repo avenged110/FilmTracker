@@ -213,6 +213,8 @@ enum UICommand: Equatable, Sendable {
     // MARK: Tags
     /// Present the TagSheet: renaming one tag, or every tag in the library (TagActions).
     case showTagSheet(TagSheet.Mode)
+    /// EXPERIMENT (Preferences.recommendationsExperiment): the Recommendations sheet.
+    case showRecommendationsSheet
 }
 
 // MARK: - Alert Commands

@@ -540,6 +540,7 @@ extension DebugHarness {
          ("iCalIntegration", \.iCalIntegration),
          ("manualExtQuery", \.manualExtQuery),
          ("smartLists", \.smartLists),
+         ("recommendations", \.recommendations),
          ("excludeQueuedFromUpForRotation", \.excludeQueuedFromUpForRotation),
          ("maintainSelectionOnSearchExit", \.maintainSelectionOnSearchExit),
          ("showSearchSuggestions", \.showSearchSuggestions),

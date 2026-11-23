@@ -719,7 +719,7 @@ enum StoreInspection {
             if count(want) != count(got) {
                 differences.append("\(name): \(count(got)) of \(count(want)) row(s)")
             } else if !countsOnly, want != got {
-                differences.append("\(name): row contents differ")
+                differences.append("\(name): Row contents differ")
             }
         }
         return differences.isEmpty ? nil : differences.joined(separator: "; ")
@@ -1108,6 +1108,7 @@ final class LibraryModel: @unchecked Sendable {
         ("atvq", .optionalBool), ("loggingEnabled", .optionalBool), ("selectedSortOptionsJSON", .optionalString),
         ("ignoredDuplicatePairsJSON", .optionalString), ("showTagsInSidebar", .optionalInt),
         ("pinnedTagsJSON", .optionalString), ("sidebarTagOrder", .optionalInt), ("tagUsesJSON", .optionalString),
+        ("recommendations", .optionalBool),
     ]
 
     /// Settings columns of preferences that no longer exist. They stay in the schema only so a store

@@ -306,21 +306,16 @@ enum ListRowMetrics {
         CGFloat(rowCount) * rowTotalHeight + listPadding
     }
 
-    /// Distance below the add row's content that must be brought into the
-    /// viewport along with it when a commit pushes it down.
-    ///
-    /// Derived rather than a literal, because it has to track the table's own
-    /// bottom chrome. Measured from the add row's content rectangle, the
-    /// container's outer edge sits one `rowVerticalInset` below it — the row's
-    /// own bottom inset — plus half of `listPadding`, the `List`'s internal
-    /// padding, which `listHeight(rowCount:)` distributes evenly between the top
-    /// and bottom edges. Revealing only the row itself would therefore leave the
-    /// table's border and shadow clipped at the fold, which reads as the row
-    /// being cut off even though its text is fully visible.
-    ///
-    /// The trailing 8pt is the requested breathing room beneath the finished
-    /// table. See `ListAddRowRevealer`.
-    static let addRowRevealPadding: CGFloat = (listPadding / 2) + rowVerticalInset + 8
+    /// Height of the strip at the bottom of a table's container that holds the add row:
+    /// one full row, insets included, plus the bottom half of `listPadding`, the `List`'s
+    /// internal padding, which `listHeight(rowCount:)` distributes evenly between the top
+    /// and bottom edges. Revealing this strip brings in the row and the table's border and
+    /// shadow beneath it, so the row never reads as cut off at the fold.
+    static let addRowRevealHeight: CGFloat = rowTotalHeight + (listPadding / 2)
+
+    /// The requested breathing room beneath the finished table when the add row is
+    /// revealed. See `ListAddRowRevealer`.
+    static let addRowRevealClearance: CGFloat = 8
 }
 
 // MARK: - Enclosing Scroll View Lookup
@@ -357,14 +352,22 @@ extension NSView {
 
 // MARK: - Add Row Reveal
 
-/// Scrolls the enclosing sheet just far enough to bring the add row it is
-/// attached to fully into the viewport, with `ListRowMetrics.addRowRevealPadding`
-/// of clearance beneath it.
+/// Scrolls the enclosing sheet just far enough to bring a table's add row fully into the
+/// viewport, with `ListRowMetrics.addRowRevealClearance` beneath the table.
 ///
 /// **The problem:** all three tables grow downward. Committing an entry turns the
 /// "Add new…" row into a real row and appends a fresh one beneath it, so the control
 /// the user is about to reach for moves down — and, near the fold, can leave the
-/// viewport entirely, forcing a manual scroll after every addition.
+/// viewport entirely, forcing a manual scroll after every addition. A bulk import can
+/// move it down by dozens of rows at once.
+///
+/// **Attached to the table's container, not to the add row.** The add row lives in the
+/// `List`'s `NSTableView`, which makes row views only for rows inside its visible rect —
+/// and that rect is clipped by the sheet's scroll view. An add row pushed below the fold
+/// (any bulk import, and a single add near the fold) may have no view at all, so a
+/// revealer inside it had nothing to measure and did nothing. The container is laid out by
+/// the sheet's hosting view whatever is on screen, and its bottom strip is exactly the add
+/// row plus the table's bottom chrome (`ListRowMetrics.addRowRevealHeight`).
 ///
 /// **Why this rather than the scroll proxy:** `FilmSheetScrollProxy` scrolls to a named
 /// anchor, which would require every table to publish one, its tab to route it, and the
@@ -375,9 +378,8 @@ extension NSView {
 /// **Minimal scrolling, only when needed:** done via `NSView.scrollToVisible(_:)`,
 /// AppKit's own "scroll the least amount that reveals this rectangle" — a no-op when
 /// the row is already visible with its clearance, and a shortfall-only correction
-/// otherwise. Using the first-party call also hands flipped/unflipped document cases
-/// and the scroll view's own elasticity/clipping rules to AppKit rather than
-/// restating them here.
+/// otherwise. It also leaves flipped/unflipped documents and the scroll view's clamping
+/// to AppKit.
 struct ListAddRowRevealer: NSViewRepresentable {
 
     /// Incremented by the owning list each time an entry is committed. A change
@@ -386,22 +388,12 @@ struct ListAddRowRevealer: NSViewRepresentable {
     /// move the viewport.
     let token: Int
 
-    /// No `bottomPadding` parameter. Every table uses the default, which is
-    /// `ListRowMetrics.addRowRevealPadding`, derived from the shared geometry so that all
-    /// tables agree. A per-instance override would break that agreement.
-
-    @MainActor
-    final class Coordinator {
-        /// The token most recently acted on. Seeded in `makeNSView` so the
-        /// table's first appearance never scrolls: a sheet opening on a film
-        /// with a populated list should present at the top, not jumped to the
-        /// bottom of whichever table happens to be longest.
-        var lastToken: Int?
-    }
-
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
+        /// Seeded so the table's first appearance never scrolls: a sheet opening on a film
+        /// with a populated list should present at the top, not jumped to the bottom of
+        /// whichever table happens to be longest.
         context.coordinator.lastToken = token
         return NSView(frame: .zero)
     }
@@ -409,100 +401,116 @@ struct ListAddRowRevealer: NSViewRepresentable {
     func updateNSView(_ nsView: NSView, context: Context) {
         guard context.coordinator.lastToken != token else { return }
         context.coordinator.lastToken = token
-
-        /// Deferred by one main-queue turn. This update runs while SwiftUI is
-        /// still applying the change that grew the table by a row, so the add
-        /// row's frame has not yet moved; measuring now would reveal the position
-        /// it is leaving rather than the one it is arriving at.
-        ///
-        /// `DispatchQueue.main.async` rather than `Task { @MainActor }`, per the
-        /// rule the rest of this file follows: the hop has to order against
-        /// AppKit's own layout work, and the main queue does, whereas a Task is
-        /// scheduled against the actor's queue with no such guarantee.
-        DispatchQueue.main.async { [weak nsView] in
-            MainActor.assumeIsolated {
-                guard let nsView else { return }
-                Self.reveal(nsView, remainingPasses: Self.settlePasses)
-            }
-        }
+        context.coordinator.begin(nsView)
     }
 
-    /// How many further turns the reveal will re-measure on before giving up.
-    ///
-    /// **Why more than one.** A single-entry commit grows the table by one row, and one hop is
-    /// enough for that: the document view's height is either already correct or short by less
-    /// than the scroll needs, so the clamped scroll lands within the clearance. A bulk import
-    /// commits *many* rows at once, and there the enclosing sheet's document view, a SwiftUI
-    /// hosting view sized from the table's row count through `listContainerChrome(height:)`,
-    /// has not yet grown when the first hop runs. `scrollToVisible` clamps to the document
-    /// bounds it is given, so that pass scrolls to the old bottom and stops, leaving the add
-    /// row below the fold. The reveal fires, but it measures a document that has not finished
-    /// growing.
-    ///
-    /// `layoutSubtreeIfNeeded` cannot close that on its own — it forces AppKit's
-    /// pending layout, not SwiftUI's next render pass, so a height that arrives
-    /// with that pass is invisible to it.
-    ///
-    /// Re-measuring instead: each pass scrolls with what it can see, and stops as soon as a
-    /// pass finds the geometry unchanged from the one before. The normal single-row case ends
-    /// after its second pass, whose scroll is a no-op. The cap bounds the rare case where
-    /// something else is animating the document's height, so this can never spin.
-    private static let settlePasses = 6
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stop()
+    }
 
+    /// Re-measures and re-reveals once per display frame until the geometry holds still.
+    ///
+    /// **Why per frame.** This update runs while SwiftUI is still applying the change that
+    /// grew the table, so nothing has moved yet. The growth lands over the following frames:
+    /// SwiftUI's next render pass sizes the container (`listContainerChrome(height:)`), Auto
+    /// Layout then grows the sheet's document view, and an animated insert moves things for
+    /// a few frames more. `scrollToVisible` clamps to the document it is given, so a pass that
+    /// runs before the document has grown scrolls to the old bottom and stops short.
+    ///
+    /// Earlier this re-measured on back-to-back main-queue hops and stopped at the first pass
+    /// that matched the one before. Those hops can all run inside one frame, before any of that
+    /// layout, so two passes would see the same old geometry and "settle" early. Whether that
+    /// happened depended on timing, which is why the reveal worked only some of the time.
+    /// A display link paces the passes on the frames the layout actually lands on.
+    ///
+    /// **Ends** once the geometry has held for `steadyFrames` frames, after `maxFrames` at
+    /// most, or as soon as the page is scrolled by anything else (the user taking over).
     @MainActor
-    private static func reveal(_ view: NSView, remainingPasses: Int, lastGeometry: CGRect? = nil) {
-        /// A view that has left the window — the sheet was dismissed inside the
-        /// deferral, or the tab was torn down — has nothing to scroll.
-        guard unsafe view.window != nil,
-              let scrollView = view.outermostEnclosingScrollView,
-              let document = scrollView.documentView else { return }
+    final class Coordinator: NSObject {
+        /// The token most recently acted on.
+        var lastToken: Int?
 
-        /// Forces any layout still pending from the update that scheduled this,
-        /// so the rectangle measured below is the row's final position rather
-        /// than an intermediate one.
-        scrollView.layoutSubtreeIfNeeded()
+        /// Frames the geometry must hold unchanged before the reveal ends.
+        private static let steadyFrames = 4
+        /// Upper bound, about a second at 60 Hz, should something keep animating the page.
+        private static let maxFrames = 60
 
-        var rect = view.convert(view.bounds, to: document)
-        guard rect.width > 0, rect.height > 0 else { return }
+        private weak var view: NSView?
+        private var link: CADisplayLink?
+        private var framesLeft = 0
+        private var steadyCount = 0
+        /// The container's top and height in the document, and the document's height, as last measured.
+        private var lastGeometry: [CGFloat]?
+        /// The scroll position this left the page at. Found elsewhere on the next frame, the
+        /// page was scrolled by someone else, and the reveal yields to them.
+        private var leftAt: NSPoint?
 
-        /// The two quantities a clamped `scrollToVisible` depends on: where the
-        /// row sits in the document, and how tall the document has grown. Packed
-        /// into one rect so the pass-to-pass comparison below is a single
-        /// equality — the origin carries the row's position, the size carries the
-        /// document's. A pass that finds both unchanged has nothing further to
-        /// wait for.
-        let geometry = CGRect(origin: rect.origin, size: document.bounds.size)
-
-        /// Extend the rectangle by the clearance, on whichever side is "below" in
-        /// the document's own coordinate space. The clearance is the tables'
-        /// shared constant, read here rather than passed in. SwiftUI's hosting views are
-        /// flipped and AppKit's are not, and this sits inside both depending on
-        /// the host, so the orientation is asked rather than assumed.
-        let bottomPadding = ListRowMetrics.addRowRevealPadding
-        if document.isFlipped {
-            rect.size.height += bottomPadding
-        } else {
-            rect.origin.y -= bottomPadding
-            rect.size.height += bottomPadding
+        func begin(_ view: NSView) {
+            self.view = view
+            framesLeft = Self.maxFrames
+            steadyCount = 0
+            lastGeometry = nil
+            leftAt = nil
+            guard link == nil else { return }
+            let link = view.displayLink(target: self, selector: #selector(tick(_:)))
+            link.add(to: .main, forMode: .common)
+            self.link = link
         }
 
-        document.scrollToVisible(rect)
+        /// Idempotent.
+        func stop() {
+            link?.invalidate()
+            link = nil
+        }
 
-        /// Settled: the row and the document both measured the same as on the
-        /// previous pass, so a further pass would scroll to the same place.
-        guard geometry != lastGeometry, remainingPasses > 0 else { return }
-
-        /// Same one-turn main-queue hop as the initial deferral, and for the same
-        /// reason — the growth this is chasing arrives with SwiftUI's next render
-        /// pass, which is ordered against the main queue.
-        DispatchQueue.main.async { [weak view] in
-            MainActor.assumeIsolated {
-                guard let view else { return }
-                Self.reveal(view, remainingPasses: remainingPasses - 1, lastGeometry: geometry)
+        @objc private func tick(_ link: CADisplayLink) {
+            /// A view that has left the window (the sheet was dismissed, the tab torn down)
+            /// has nothing to scroll.
+            guard let view, unsafe view.window != nil,
+                  let scrollView = view.outermostEnclosingScrollView,
+                  let document = scrollView.documentView else {
+                stop()
+                return
             }
+            let clip = scrollView.contentView
+            if let leftAt, clip.bounds.origin != leftAt {
+                stop()
+                return
+            }
+
+            /// Forces AppKit layout still pending from the frame's SwiftUI pass, so the
+            /// rectangle measured below is current.
+            scrollView.layoutSubtreeIfNeeded()
+
+            let container = view.convert(view.bounds, to: document)
+            guard container.width > 0, container.height > 0 else {
+                stop()
+                return
+            }
+
+            /// The container's bottom strip — the add row and the table's bottom chrome —
+            /// with the clearance beneath it, on whichever side is "below" in the document's
+            /// own coordinates. SwiftUI's hosting views are flipped and AppKit's are not, and
+            /// this can sit inside either, so the orientation is asked rather than assumed.
+            let strip = min(ListRowMetrics.addRowRevealHeight, container.height)
+            let clearance = ListRowMetrics.addRowRevealClearance
+            let target = document.isFlipped
+                ? CGRect(x: container.minX, y: container.maxY - strip,
+                         width: container.width, height: strip + clearance)
+                : CGRect(x: container.minX, y: container.minY - clearance,
+                         width: container.width, height: strip + clearance)
+            document.scrollToVisible(target)
+            leftAt = clip.bounds.origin
+
+            /// The two quantities a clamped `scrollToVisible` depends on: where the table
+            /// sits in the document, and how tall the document has grown.
+            let geometry = [container.minY, container.height, document.bounds.height]
+            steadyCount = geometry == lastGeometry ? steadyCount + 1 : 0
+            lastGeometry = geometry
+            framesLeft -= 1
+            if steadyCount >= Self.steadyFrames || framesLeft <= 0 { stop() }
         }
     }
-
 }
 
 // MARK: - Shared List Container Chrome

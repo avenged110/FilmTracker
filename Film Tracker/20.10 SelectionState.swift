@@ -67,7 +67,11 @@ final class SelectionState: Loggable {
 
     /// The set of currently selected film UUIDs (updates immediately on selection change).
     var selectedFilmIDs: Set<UUID> = [] {
-        didSet { untrackedSelectedFilmIDs = selectedFilmIDs } }
+        didSet {
+            untrackedSelectedFilmIDs = selectedFilmIDs
+            /// A film looked at for a moment teaches the search suggestions (SearchController.noteSelection).
+            SearchController.shared.noteSelection(selectedFilmIDs)
+        } }
 
     /// The same value as `selectedFilmIDs`, read without registering an observation. The galleries' selection
     /// sync runs inside `updateNSView`. Reading `selectedFilmIDs` there would re-run the whole update on every click.

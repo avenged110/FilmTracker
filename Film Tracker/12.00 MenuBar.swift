@@ -954,6 +954,8 @@ struct LeftSidebarMenu: View {
 
     /// Monitor Preferences.smartLists to show/hide smart list entries
     @AppStorage(preference: Preferences.smartListsKey) private var smartListsEnabled: Bool
+    /// Recommendations' checkbox (Preferences.recommendationsEnabled), observed.
+    @AppStorage(preference: Preferences.recommendationsKey) private var recommendationsOn: Bool
 
     var body: some View {
         Menu("Left Sidebar") {
@@ -999,6 +1001,14 @@ struct LeftSidebarMenu: View {
                 tabToggle(filter == .all ? LibraryItem.filmQueue.title : filter.displayName,
                           item: .filmQueueSection(filter),
                           shortcut: filter == .all ? .filmQueue : nil) { selectFilmQueueSection(filter) }
+            }
+
+            /// EXPERIMENT: no shortcut of its own.
+            if Preferences.recommendationsExperiment && recommendationsOn {
+                Divider()
+                tabToggle(LibraryItem.recommendations.title, item: .recommendations) {
+                    appState.navigate(to: .libraryItem(.recommendations))
+                }
             }
             
             if smartListsEnabled {
@@ -1053,6 +1063,7 @@ struct LeftSidebarMenu: View {
         case insights(InsightsCategory)
         case imports(ImportsCategory)
         case filmQueueSection(FilmQueueFilter)
+        case recommendations
         case smartList(SmartListType)
     }
     
@@ -1106,6 +1117,9 @@ struct LeftSidebarMenu: View {
                 return false
             }
             return FilmQueueFilterState.shared.selectedFilter == filter
+
+        case .recommendations:
+            return appState.selectedSidebarItem == .libraryItem(.recommendations)
             
         case .smartList(let type):
             if case .smartList(let activeType) = ViewStateManager.shared.activeView {

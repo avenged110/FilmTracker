@@ -63,6 +63,14 @@ nonisolated struct SearchVocabulary: Sendable {
     private(set) var affinity: [Double] = []
     /// Per film: its title key, for resolving freeform context text.
     private(set) var titleKeys: [String] = []
+    /// Per film: in the Queue. Read when the search starts from the Queue (SearchFocus).
+    private(set) var queued: [Bool] = []
+    /// Per film: a release due within the year ahead, or one on the wishlist. Read when the
+    /// search starts from a release smart list (SearchFocus).
+    private(set) var releaseInterest: [Bool] = []
+    /// Per film, 0...1: how much more the user watches the film's genres in this month than
+    /// in an average one, from the whole library's viewing calendar (see `seasonalLift`).
+    private(set) var seasonal: [Double] = []
 
     static let empty = SearchVocabulary()
 
@@ -153,13 +161,34 @@ nonisolated struct SearchVocabulary: Sendable {
         ]
         var affinity: [Double] = []
         var titleKeys: [String] = []
+        var queuedFlags: [Bool] = []
+        var releaseInterest: [Bool] = []
+        /// Per film, its genre keys; per genre key, its viewings by month (1...12).
+        var filmGenres: [[String]] = []
+        var genreMonths: [String: [Int]] = [:]
         affinity.reserveCapacity(films.count)
         titleKeys.reserveCapacity(films.count)
         for film in films.values {
             if Task.isCancelled { return }
             let index = Int32(affinity.count)
-            affinity.append(FilmSignals(film, queued: queued.contains(film.id), today: today).affinity)
+            let isQueued = queued.contains(film.id)
+            let signals = FilmSignals(film, queued: isQueued, today: today)
+            affinity.append(signals.affinity)
+            queuedFlags.append(isQueued)
+            releaseInterest.append(signals.releaseInterest)
             titleKeys.append(SearchText.key(film.name))
+            /// Viewing dates are stored "yyyy.MM.dd"; the month is read straight from them.
+            let genreKeys = Array(Set(film.genre.split(whereSeparator: { $0 == "," || $0 == "/" })
+                .map { SearchText.key($0.trimmingCharacters(in: .whitespaces)) }
+                .filter { !$0.isEmpty }))
+            filmGenres.append(genreKeys)
+            if !genreKeys.isEmpty {
+                for entry in film.calendarTable {
+                    let parts = entry.split(separator: ".")
+                    guard parts.count >= 2, let month = Int(parts[1]), (1...12).contains(month) else { continue }
+                    for genre in genreKeys { genreMonths[genre, default: Array(repeating: 0, count: 13)][month] += 1 }
+                }
+            }
             add(film.name, to: .title, film: index)
             for (field, path) in people {
                 /// A person credited twice on one film still counts once for it.
@@ -202,6 +231,26 @@ nonisolated struct SearchVocabulary: Sendable {
         }
         self.affinity = affinity
         self.titleKeys = titleKeys
+        self.queued = queuedFlags
+        self.releaseInterest = releaseInterest
+        let month = StorageDateFormatters.calendar.component(.month, from: today)
+        let lift = genreMonths.mapValues { Self.seasonalLift($0, month: month) }
+        self.seasonal = filmGenres.map { genres in genres.map { lift[$0] ?? 0 }.max() ?? 0 }
+    }
+
+    /// How much more a genre is watched in `month` than in an average month, 0...1, from its
+    /// viewings by month (index 1...12). The month itself counts in full and its neighbors
+    /// at half, so a habit that straddles two months still registers. A genre needs a dozen
+    /// viewings before it says anything; twice the average month or more is full marks.
+    static func seasonalLift(_ byMonth: [Int], month: Int) -> Double {
+        let total = byMonth.reduce(0, +)
+        guard total >= 12 else { return 0 }
+        let previous = month == 1 ? 12 : month - 1
+        let next = month == 12 ? 1 : month + 1
+        let near = Double(byMonth[month]) + 0.5 * Double(byMonth[previous] + byMonth[next])
+        /// The window spans two months' worth of weight.
+        let ratio = near / (2 * Double(total) / 12)
+        return min(1, max(0, ratio - 1))
     }
 
     static func initials(of key: String) -> String {
@@ -229,9 +278,13 @@ nonisolated struct SearchVocabulary: Sendable {
 /// • Hall of Fame (0.10): any ranked position, the top ranks a little more.
 /// • In the Queue (0.10): the user has said they mean to watch it.
 /// • Recently added (0.10): the film's added date, decaying with a 30-day half-life.
+/// • Recently edited (0.10): the film's last modification, decaying with a 14-day
+///   half-life — a film just worked on is likely to be looked for again.
 /// • Wishlisted (0.05): any top-level release on the wishlist.
 nonisolated struct FilmSignals {
     let affinity: Double
+    /// A release due within the year ahead, or any top-level release on the wishlist.
+    let releaseInterest: Bool
 
     init(_ film: FilmSnapshot, queued: Bool, today: Date) {
         func decay(daysSince days: Double, halfLife: Double) -> Double {
@@ -277,20 +330,33 @@ nonisolated struct FilmSignals {
 
         let wishlisted = film.releases.contains { $0.wishlist > 0 && $0.isTopLevel } ? 1.0 : 0
 
+        let editedDaysAgo = daysBetween(parseDate(from: film.lastModified), today)
+        let recentlyEdited = editedDaysAgo.map { decay(daysSince: $0, halfLife: 14) } ?? 0
+
+        releaseInterest = comingSoon > 0 || wishlisted > 0
         affinity = 0.35 * comingSoon + 0.25 * rating + 0.15 * recentlyWatched
             + 0.15 * rewatched + 0.10 * hallOfFame + 0.10 * (queued ? 1 : 0)
-            + 0.10 * recentlyAdded + 0.05 * wishlisted
+            + 0.10 * recentlyAdded + 0.10 * recentlyEdited + 0.05 * wishlisted
     }
 }
 
 // MARK: - Heuristics
 
-/// A small store of what the user searches for, weighted by how often and how recently.
+/// A small store of what the user searches for and opens, weighted by how often and how
+/// recently, in three parts:
 ///
-/// Each record adds 1 to a value's weight; weights halve every `halfLifeDays`, so habits
-/// that stop fade on their own. Values are grouped by scope (a token field's raw value, or
-/// "text" for freeform searches). The store is bounded per scope and saved as one small
-/// JSON file, written at most once per `saveDelay` and never on the main actor.
+/// • Use, per scope (a token field's raw value; titles share `SearchField.title`'s): each
+///   record adds its amount to a value's weight. Freeform text is never recorded as typed —
+///   a search left at "man on fir" says nothing — only the film it led to.
+/// • Input history, per scope: what was typed when a value was picked or a film opened
+///   ("ma" → The Matrix). Typing that again, or anything it starts with, brings the value
+///   up first. The closest thing to a typed shortcut, learned from use.
+/// • Skips, per scope: rows shown above the one picked. A row passed over again and again
+///   sinks a little; picking it clears its skips.
+///
+/// Weights halve every `halfLifeDays`, so habits that stop fade on their own. Each part is
+/// bounded and saved as one small JSON file, written at most once per `saveDelay` and never
+/// on the main actor.
 actor SearchHeuristics {
     static let shared = SearchHeuristics()
 
@@ -305,60 +371,152 @@ actor SearchHeuristics {
         }
     }
 
-    static let textScope = "text"
+    /// What the ranker learns from, for one request.
+    struct Learned: Sendable {
+        /// Value key → its display and use weight.
+        var use: [String: (display: String, weight: Double)] = [:]
+        /// Value key → the summed weight of every past input related to what is typed.
+        var inputs: [String: Double] = [:]
+        /// Value key → how often it was passed over, decayed.
+        var skips: [String: Double] = [:]
+    }
+
+    /// The scope freeform searches and `#title` share: both name films by title.
+    static let titleScope = SearchField.title.rawValue
     static let halfLifeDays = 30.0
     private static let maxEntriesPerScope = 200
+    private static let maxInputsPerScope = 300
+    private static let maxValuesPerInput = 8
     private static let minimumWeight = 0.05
     private static let saveDelay: Duration = .seconds(5)
+    private static let skipPrefix = "skip:"
 
-    /// scope → value key → entry.
+    /// scope → value key → entry. Skips live here too, under "skip:<scope>".
     private var scopes: [String: [String: Entry]] = [:]
+    /// scope → input key → value key → entry.
+    private var inputs: [String: [String: [String: Entry]]] = [:]
     private var loaded = false
     private var saveTask: Task<Void, Never>?
 
     private var fileURL: URL? {
         Preferences.dataFolderURL?.appendingPathComponent("search-heuristics.json")
     }
+    private var inputsURL: URL? {
+        Preferences.dataFolderURL?.appendingPathComponent("search-input-history.json")
+    }
 
-    /// Records one use of `display` in `scope`.
-    func record(_ display: String, scope: String, at date: Date = Date()) {
-        let display = display.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = SearchText.key(display)
-        guard !key.isEmpty else { return }
+    /// Records `amount` uses of `display` in `scope`.
+    func record(_ display: String, scope: String, amount: Double = 1, at date: Date = Date()) {
         loadIfNeeded()
-        var entries = scopes[scope] ?? [:]
-        let prior = entries[key]?.weight(at: date) ?? 0
-        entries[key] = Entry(display: display, weight: prior + 1, updated: date)
-        if entries.count > Self.maxEntriesPerScope {
-            /// Drop the weakest so the store stays bounded however long it is used.
-            let keep = entries.sorted { $0.value.weight(at: date) > $1.value.weight(at: date) }
-                .prefix(Self.maxEntriesPerScope)
-            entries = Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+        add(display, amount: amount, to: scope, at: date)
+        scheduleSave()
+    }
+
+    /// Records that typing `typed` in `scope` led to `display`: picked from the drop-down, or
+    /// the film opened from the results. Clears the value's skips.
+    func recordInput(_ typed: String, value display: String, scope: String, at date: Date = Date()) {
+        let inputKey = SearchText.key(typed)
+        let display = display.trimmingCharacters(in: .whitespacesAndNewlines)
+        let valueKey = SearchText.key(display)
+        guard !inputKey.isEmpty, !valueKey.isEmpty, inputKey != valueKey else { return }
+        loadIfNeeded()
+        var byInput = inputs[scope] ?? [:]
+        var values = byInput[inputKey] ?? [:]
+        let prior = values[valueKey]?.weight(at: date) ?? 0
+        values[valueKey] = Entry(display: display, weight: prior + 1, updated: date)
+        if values.count > Self.maxValuesPerInput {
+            values = Self.strongest(values, count: Self.maxValuesPerInput, at: date)
         }
-        scopes[scope] = entries
+        byInput[inputKey] = values
+        if byInput.count > Self.maxInputsPerScope {
+            let ranked = byInput.map { ($0.key, $0.value.values.reduce(0) { $0 + $1.weight(at: date) }) }
+                .sorted { $0.1 > $1.1 }.prefix(Self.maxInputsPerScope)
+            byInput = Dictionary(uniqueKeysWithValues: ranked.map { ($0.0, byInput[$0.0]!) })
+        }
+        inputs[scope] = byInput
+        scopes[Self.skipPrefix + scope]?.removeValue(forKey: valueKey)
+        scheduleSave()
+    }
+
+    /// Records that each of `displays` was shown above the row picked in `scope`.
+    func recordSkips(_ displays: [String], scope: String, at date: Date = Date()) {
+        guard !displays.isEmpty else { return }
+        loadIfNeeded()
+        for display in displays { add(display, amount: 1, to: Self.skipPrefix + scope, at: date) }
         scheduleSave()
     }
 
     /// The current weight of every value in `scope`, keyed by value key.
     func weights(scope: String, at date: Date = Date()) -> [String: (display: String, weight: Double)] {
         loadIfNeeded()
+        return current(scopes[scope] ?? [:], at: date)
+    }
+
+    /// Everything the ranker reads for `typed` in `scope`. A past input counts when either it
+    /// or what is typed starts with the other: "ma" helps "m" and "mat" alike.
+    func learned(scope: String, typed: String, at date: Date = Date()) -> Learned {
+        loadIfNeeded()
+        var result = Learned()
+        result.use = current(scopes[scope] ?? [:], at: date)
+        result.skips = current(scopes[Self.skipPrefix + scope] ?? [:], at: date).mapValues(\.weight)
+        let typedKey = SearchText.key(typed)
+        guard !typedKey.isEmpty else { return result }
+        for (inputKey, values) in inputs[scope] ?? [:]
+        where inputKey.hasPrefix(typedKey) || typedKey.hasPrefix(inputKey) {
+            for (valueKey, entry) in values {
+                let weight = entry.weight(at: date)
+                if weight >= Self.minimumWeight { result.inputs[valueKey, default: 0] += weight }
+            }
+        }
+        return result
+    }
+
+    private func add(_ display: String, amount: Double, to scope: String, at date: Date) {
+        let display = display.trimmingCharacters(in: .whitespacesAndNewlines)
+        let key = SearchText.key(display)
+        guard !key.isEmpty, amount > 0 else { return }
+        var entries = scopes[scope] ?? [:]
+        let prior = entries[key]?.weight(at: date) ?? 0
+        entries[key] = Entry(display: display, weight: prior + amount, updated: date)
+        if entries.count > Self.maxEntriesPerScope {
+            /// Drop the weakest so the store stays bounded however long it is used.
+            entries = Self.strongest(entries, count: Self.maxEntriesPerScope, at: date)
+        }
+        scopes[scope] = entries
+    }
+
+    private func current(_ entries: [String: Entry], at date: Date) -> [String: (display: String, weight: Double)] {
         var result: [String: (display: String, weight: Double)] = [:]
-        for (key, entry) in scopes[scope] ?? [:] {
+        for (key, entry) in entries {
             let weight = entry.weight(at: date)
             if weight >= Self.minimumWeight { result[key] = (entry.display, weight) }
         }
         return result
     }
 
+    private static func strongest(_ entries: [String: Entry], count: Int, at date: Date) -> [String: Entry] {
+        let keep = entries.sorted { $0.value.weight(at: date) > $1.value.weight(at: date) }.prefix(count)
+        return Dictionary(uniqueKeysWithValues: keep.map { ($0.key, $0.value) })
+    }
+
     private func loadIfNeeded() {
         guard !loaded else { return }
         loaded = true
-        guard let url = fileURL, let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: [String: Entry]].self, from: data)
-        else { return }
         /// Faded entries are dropped on load rather than carried forward forever.
         let now = Date()
-        scopes = decoded.mapValues { $0.filter { $0.value.weight(at: now) >= Self.minimumWeight } }
+        func live(_ entries: [String: Entry]) -> [String: Entry] {
+            entries.filter { $0.value.weight(at: now) >= Self.minimumWeight }
+        }
+        if let url = fileURL, let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode([String: [String: Entry]].self, from: data) {
+            /// "text" held freeform searches as typed, fragments and all ("man on fir", "t"),
+            /// before only the films they led to were learned. It is dropped, not migrated.
+            scopes = decoded.filter { $0.key != "text" }.mapValues(live)
+        }
+        if let url = inputsURL, let data = try? Data(contentsOf: url),
+           let decoded = try? JSONDecoder().decode([String: [String: [String: Entry]]].self, from: data) {
+            inputs = decoded.mapValues { $0.mapValues(live).filter { !$0.value.isEmpty } }
+        }
     }
 
     private func scheduleSave() {
@@ -371,8 +529,12 @@ actor SearchHeuristics {
 
     private func save() {
         saveTask = nil
-        guard let url = fileURL, let data = try? JSONEncoder().encode(scopes) else { return }
-        try? data.write(to: url, options: .atomic)
+        if let url = fileURL, let data = try? JSONEncoder().encode(scopes) {
+            try? data.write(to: url, options: .atomic)
+        }
+        if let url = inputsURL, let data = try? JSONEncoder().encode(inputs) {
+            try? data.write(to: url, options: .atomic)
+        }
     }
 }
 
@@ -403,6 +565,20 @@ struct SearchSuggestionRequest: Sendable {
     /// For `.list`: every searchable list name with its group, in catalog order.
     let lists: [(name: String, kind: SearchListCatalog.Kind)]
     let context: SearchContext
+    /// The view the search was started from, when it says which films are on the user's mind.
+    var focus: SearchFocus = .none
+}
+
+/// What the view a search starts from says about the films being looked for.
+enum SearchFocus: Sendable, Equatable {
+    case none
+    /// The Queue: queued films.
+    case queue
+    /// A release smart list (Upcoming Releases, the Purchased and Unpurchased lists): films
+    /// with a release coming or wishlisted.
+    case releases
+    /// A tag's view: the films carrying the tag, by key.
+    case tag(String)
 }
 
 nonisolated enum SearchSuggestionRanker {
@@ -412,13 +588,27 @@ nonisolated enum SearchSuggestionRanker {
     /// reorder candidates of similar quality and can lift a word-start match past a weak
     /// match at the value's start, but nothing past a whole-value match, and nothing that
     /// matches only mid-word past a match at the value's start.
+    ///
+    /// Two exceptions, both about short input. The match weight grows with what is typed —
+    /// a quarter at one letter, full from four — because a letter or two matches hundreds of
+    /// values about equally well, and only the user's habits can tell them apart. And input
+    /// history (what was typed before, and what it led to) is worth a start-of-value match
+    /// on its own: it is the user saying which value those letters mean.
     private enum Weight {
         static let match = 10.0
+        static let input = 20.0
         static let learned = 4.0
         static let context = 3.0
         static let taste = 3.0
+        static let focus = 3.0
+        static let season = 1.5
+        static let skip = 3.0
         static let count = 0.5
     }
+
+    /// The shortest value worth suggesting. A value of a letter or two is quicker to type
+    /// than to pick. Fixed keywords ("4k", "hdr") are exempt: they are terms, not text.
+    static let minimumValueLength = 3
 
     /// The ranked suggestions for `request`, at most `limit` of them.
     ///
@@ -430,13 +620,20 @@ nonisolated enum SearchSuggestionRanker {
     ///   session's searches point at (sharing a director, a tag, a title), so after
     ///   `#director nolan`, typing `#cast ` puts his regular cast first;
     /// • taste — what the library says about the films carrying it (SearchVocabulary);
+    /// • input history — past input related to what is typed that led to this value;
+    /// • focus — its films' share of those the starting view points at (SearchFocus);
+    /// • season — how much its films' genres are watched at this time of year;
+    /// • less, for each time it was shown and passed over;
     /// • how many films carry it.
-    /// Learned values the library does not hold — a year range, a rating — are candidates
-    /// too, so habits surface for every field.
+    ///
+    /// Never suggested: what is already typed, a value shorter than `minimumValueLength`,
+    /// and, in fields drawn from the library, a learned value the library no longer holds.
+    /// Learned values of other fields — a year range, a rating — are candidates, so habits
+    /// surface there too.
     static func rank(
         _ request: SearchSuggestionRequest,
         vocabulary: SearchVocabulary,
-        learned: [String: (display: String, weight: Double)],
+        learned: SearchHeuristics.Learned,
         limit: Int
     ) -> [SearchSuggestion] {
         guard limit > 0 else { return [] }
@@ -447,6 +644,25 @@ nonisolated enum SearchSuggestionRanker {
         let field = request.field ?? .title
         let typedWords = typed.split(separator: " ").map(String.init)
         let present = request.context.present[field] ?? []
+        let isLibraryField = SearchVocabulary.libraryFields.contains(field)
+        let matchWeight = Weight.match * min(1, Double(typed.count) / 4)
+        /// Per film, how strongly the starting view points at it.
+        let focusFilms: (Int32) -> Bool
+        switch request.focus {
+        case .none:
+            focusFilms = { _ in false }
+        case .queue:
+            let flags = vocabulary.queued
+            focusFilms = { flags.indices.contains(Int($0)) && flags[Int($0)] }
+        case .releases:
+            let flags = vocabulary.releaseInterest
+            focusFilms = { flags.indices.contains(Int($0)) && flags[Int($0)] }
+        case .tag(let key):
+            let films = vocabulary.termIndex[.tags]?[key].flatMap { vocabulary.terms[.tags]?[$0].films }
+            let set = Set(films ?? [])
+            focusFilms = { set.contains($0) }
+        }
+        let hasFocus = request.focus != .none && isLibraryField
 
         struct Candidate {
             let display: String
@@ -457,6 +673,8 @@ nonisolated enum SearchSuggestionRanker {
             let films: [Int32]
             let group: Int
             let prefix: String
+            /// A fixed keyword of a token field, exempt from the minimum length.
+            var isKeyword = false
         }
         /// Films the context points at, each with the weight of the strongest value
         /// pointing at it.
@@ -476,6 +694,10 @@ nonisolated enum SearchSuggestionRanker {
             /// as a new token once it is in the field.
             guard let quality = matchQuality(key: candidate.key, initials: candidate.initials,
                                              typed: typed, words: typedWords),
+                  /// With a letter or two typed, a match inside a word is noise.
+                  typed.count > 2 || quality >= 0.6,
+                  candidate.key != typed,
+                  candidate.isKeyword || candidate.key.count >= minimumValueLength,
                   !present.contains(candidate.key), !candidate.display.contains("#") else { return true }
             var related = 0.0
             if !contextFilms.isEmpty && !candidate.films.isEmpty {
@@ -484,11 +706,28 @@ nonisolated enum SearchSuggestionRanker {
                 /// does not relate to everything.
                 related = min(1, sum / Double(candidate.films.count).squareRoot())
             }
-            let score = Weight.match * quality
-                + Weight.learned * min(1.5, log1p(learned[candidate.key]?.weight ?? 0))
-                + Weight.context * related
-                + Weight.taste * candidate.taste
-                + Weight.count * min(2.5, log1p(Double(candidate.count)))
+            var focus = 0.0
+            var season = 0.0
+            if !candidate.films.isEmpty {
+                let root = Double(candidate.films.count).squareRoot()
+                if hasFocus {
+                    focus = min(1, Double(candidate.films.reduce(0) { $0 + (focusFilms($1) ? 1 : 0) }) / root)
+                }
+                if isLibraryField {
+                    let seasonal = vocabulary.seasonal
+                    let sum = candidate.films.reduce(0.0) {
+                        $0 + (seasonal.indices.contains(Int($1)) ? seasonal[Int($1)] : 0)
+                    }
+                    season = min(1, sum / root)
+                }
+            }
+            let input: Double = Weight.input * min(1.5, log1p(learned.inputs[candidate.key] ?? 0))
+            let use: Double = Weight.learned * min(1.5, log1p(learned.use[candidate.key]?.weight ?? 0))
+            let skipped: Double = Weight.skip * min(1, log1p(learned.skips[candidate.key] ?? 0) / log1p(4))
+            let count: Double = Weight.count * min(2.5, log1p(Double(candidate.count)))
+            var score: Double = matchWeight * quality + input + use
+            score += Weight.context * related + Weight.taste * candidate.taste
+            score += Weight.focus * focus + Weight.season * season + count - skipped
             scored.append((candidate, score))
             return true
         }
@@ -510,11 +749,14 @@ nonisolated enum SearchSuggestionRanker {
             for term in vocabulary.terms[field] ?? [] {
                 guard consider(Candidate(display: term.display, key: term.key,
                                          initials: term.initials, count: term.count,
-                                         taste: term.taste, films: term.films, group: 0, prefix: ""))
+                                         taste: term.taste, films: term.films, group: 0, prefix: "",
+                                         isKeyword: term.films.isEmpty && !isLibraryField))
                 else { return [] }
             }
+            /// A learned value the library does not hold is a candidate only in a field whose
+            /// values are not library text: in a library field it names nothing any more.
             let termIndex = vocabulary.termIndex[field] ?? [:]
-            for (key, entry) in learned where termIndex[key] == nil {
+            for (key, entry) in isLibraryField ? [:] : learned.use where termIndex[key] == nil {
                 guard consider(Candidate(display: entry.display, key: key,
                                          initials: SearchVocabulary.initials(of: key), count: 0,
                                          taste: 0, films: [], group: 0, prefix: "")) else { return [] }

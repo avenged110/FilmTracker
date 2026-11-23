@@ -1345,7 +1345,7 @@ final class DBRestorer: Loggable {
             }
             
             throw DBRestorerError.invalidBackupStructure(
-                "Invalid UUID type for '\(fieldName)' in \(entityName): expected String or UUID, got \(type(of: value))"
+                "Invalid UUID type for '\(fieldName)' in \(entityName): Expected String or UUID, got \(type(of: value))"
             )
         }
         
@@ -1700,7 +1700,7 @@ final class DBRestorer: Loggable {
             }
 
             throw DBRestorerError.invalidBackupStructure(
-                "Invalid type for relationship UUID '\(fieldName)' in \(entityName): expected String, got \(type(of: value))")
+                "Invalid type for relationship UUID '\(fieldName)' in \(entityName): Expected String, got \(type(of: value))")
         }
     }
     

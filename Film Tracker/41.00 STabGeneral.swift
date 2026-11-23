@@ -49,6 +49,8 @@ struct GeneralSettingsView: View, Loggable {
         private var manualExtQuery: Bool
     @AppStorage(preference: Preferences.smartListsKey)
         private var smartLists: Bool
+    @AppStorage(preference: Preferences.recommendationsKey)
+        private var recommendations: Bool
     @AppStorage(preference: Preferences.showTagsInSidebarKey)
         private var showTagsInSidebarRaw: Int
     @AppStorage(preference: Preferences.sidebarTagOrderKey)
@@ -218,6 +220,18 @@ struct GeneralSettingsView: View, Loggable {
 
             Toggle(isOn: $showStatusBar) {
                 Text("Show the status bar at the bottom of the window") }
+
+            /// Shown only while the experiment flag is on; both must be on for the feature to run
+            /// (Preferences.recommendationsEnabled). Mirrored and posted as for smartLists below,
+            /// then the model starts or stops its work.
+            if Preferences.recommendationsExperiment {
+                Toggle(isOn: $recommendations) {
+                    Text("Show the recommendations section in the sidebar") }
+                .onChange(of: recommendations) { _, newValue in
+                    Preferences.recommendations = newValue
+                    AppEventBus.shared.send(.view(.preferencesChanged))
+                    RecommendationsModel.preferenceChanged() }
+            }
 
             Toggle(isOn: $smartLists) {
                 Text("Show the Smart Lists section in the sidebar") }

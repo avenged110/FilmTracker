@@ -470,6 +470,8 @@ private struct ListRowDropHighlight: ViewModifier {
 
 // MARK: - Library Section Component
 private struct LibrarySection: View {
+    /// The Recommendations row's checkbox (Preferences.recommendationsEnabled), observed.
+    @AppStorage(preference: Preferences.recommendationsKey) private var recommendationsOn: Bool
     var importProgress = ImportProgress.shared
 
     /// The Imports row's icon: its own glyph normally, a checkmark once an import
@@ -567,6 +569,11 @@ private struct LibrarySection: View {
                         isDropTargeted: $isQueueDropTargeted,
                         isHovered: $isQueueHovered
                     ))
+            }
+
+            if Preferences.recommendationsExperiment && recommendationsOn {
+                Label(LibraryItem.recommendations.title, systemImage: ViewGlyphs.recommendations.outline)
+                    .tag(SidebarRow.item(.libraryItem(.recommendations)))
             }
         }
     }

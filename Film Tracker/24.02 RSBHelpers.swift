@@ -1072,6 +1072,39 @@ struct RSBHelpers {
         return truncatedStudioDisplayName(abbreviatedStudioName(studio))
     }
 
+    // MARK: - Release Used Suggestions
+
+    /// The FilmSheet Notes tab's "Release" suggestions: one string per cataloged release of the film, in
+    /// release order, whatever its purchase status. Each reads "YEAR ORIGIN STUDIO FORMAT" in the most compact
+    /// spellings the Source for Viewing field uses: the release's own year, the origin's short form ("AU"),
+    /// the studio's abbreviation ("Uni", subject to Preferences.abbreviateSourceStudio, as in the sidebar),
+    /// and "rem." before the format label ("4K disc", "Blu-ray disc", "DVD"). Empty tokens are left out.
+    /// Releases that would read the same are offered once.
+    static func releaseUsedSuggestions(for releases: [ReleaseSnapshot]) -> [String] {
+        var seen: Set<String> = []
+        var result: [String] = []
+        for release in releases {
+            let year = ReleaseDateValue.yearText(of: release.releaseDate, format: release.format)
+            let origin = release.nationalOrigin.isEmpty ? "" : ReleaseOrigin.shortForm(for: release.nationalOrigin)
+            let studio = release.studio.isEmpty ? "" : displayStudioAbbreviation(release.studio)
+            let format: String
+            switch ReleaseFormat(rawValue: release.format) {
+            case .uhd4K:  format = "4K disc"
+            case .bluRay: format = "Blu-ray disc"
+            case .dvd:    format = "DVD"
+            case nil:     format = release.format
+            }
+            let label = release.remastered ? "rem. \(format)" : format
+            let joined = [year, origin, studio, label]
+                .filter { !$0.isEmpty }
+                .joined(separator: " ")
+            let value = joined.prefix(1).uppercased() + joined.dropFirst()
+            guard !value.isEmpty, seen.insert(value).inserted else { continue }
+            result.append(value)
+        }
+        return result
+    }
+
     /// Builds the disambiguation prefix for a disc-format pool.
     ///
     /// `best`        — the best-scored purchased release (the one displayed).
@@ -2175,5 +2208,41 @@ struct RSBTopPinnedLayout: Layout {
     func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
         subviews.first?.place(at: CGPoint(x: bounds.minX, y: bounds.minY), anchor: .topLeading,
                               proposal: ProposedViewSize(width: bounds.width, height: nil))
+    }
+}
+
+/// A two-field sidebar row split one third / two thirds. The first field takes the width of one column
+/// of a three-wide row (such as RTabDetails' Frame Rate / HB RF Value / Color), and the second spans
+/// the other two columns and the gap between them, so both line up with the three-wide grid.
+struct RSBOneThirdTwoThirdsLayout: Layout {
+    var spacing: CGFloat = 12
+
+    private func widths(for total: CGFloat) -> (CGFloat, CGFloat) {
+        let column = max(0, (total - 2 * spacing) / 3)
+        return (column, max(0, total - column - spacing))
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let total = proposal.width, total.isFinite else {
+            let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+            return CGSize(width: sizes.reduce(0) { $0 + $1.width } + spacing * CGFloat(max(0, sizes.count - 1)),
+                          height: sizes.map(\.height).max() ?? 0)
+        }
+        let (first, second) = widths(for: total)
+        let height = subviews.indices.map { index in
+            subviews[index].sizeThatFits(ProposedViewSize(width: index == 0 ? first : second, height: nil)).height
+        }.max() ?? 0
+        return CGSize(width: total, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let (first, second) = widths(for: bounds.width)
+        var x = bounds.minX
+        for (index, subview) in subviews.enumerated() {
+            let width = index == 0 ? first : second
+            subview.place(at: CGPoint(x: x, y: bounds.minY), anchor: .topLeading,
+                          proposal: ProposedViewSize(width: width, height: nil))
+            x += width + spacing
+        }
     }
 }

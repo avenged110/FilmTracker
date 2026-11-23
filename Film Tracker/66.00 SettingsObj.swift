@@ -70,6 +70,10 @@ final class SettingsObject: LibraryObject {
         get { optionalBool("smartLists") }
         set { setOptionalBool(newValue, "smartLists") }
     }
+    var recommendations: Bool? {
+        get { optionalBool("recommendations") }
+        set { setOptionalBool(newValue, "recommendations") }
+    }
     var showTagsInSidebar: Int? {
         get { optionalInt("showTagsInSidebar") }
         set { setOptionalInt(newValue, "showTagsInSidebar") }

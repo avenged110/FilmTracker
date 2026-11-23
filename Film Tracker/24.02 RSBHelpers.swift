@@ -207,6 +207,7 @@ struct RSBHelpers {
         isPlaceholder: Bool,
         glyph: String? = nil,
         glyphColor: Color = .primary,
+        trailingInset: CGFloat = RSBHelpers.rowHorizontalPadding,
         rowFontSize: CGFloat = RSBHelpers.rowFontSize
     ) -> some View {
         /// Bounded here, so the body and `maxAbbreviationCandidates` cannot disagree on how many steps are
@@ -249,7 +250,7 @@ struct RSBHelpers {
             }
         }
         .conditionalTextSelection(enabled: !isPlaceholder)
-        .sidebarRowContainer(glyph: glyph, glyphColor: glyphColor)
+        .sidebarRowContainer(glyph: glyph, glyphColor: glyphColor, trailingInset: trailingInset)
     }
 
     /// A subordinate note about the value above it, with the same plate chrome as `valueRow`. It is always

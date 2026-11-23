@@ -1,0 +1,107 @@
+// Steps for the DEBUG `doc-shots` harness scenario (DebugHarness/99.53 DHDocumentation.swift),
+// which drives the real main window and writes 2x PNGs to <sandbox>/doc-shots/.
+// Run through Documentation/Tools/shots.sh, which copies the live library, runs this, and crops.
+// One step per line, fields separated by |. Window: 1400 x 880 pt (2800 x 1760 px).
+
+deletetagged|family's movie; not mine
+appearance|dark
+size|1400|880
+wait|1500
+
+// Main window, All Films grid, Heat selected (window.png)
+nav|all
+style|grid
+select|Heat
+scroll
+rsb|details
+wait|1500
+shot|window|window
+shot|window|rsb-details-full
+
+// Contextual sidebar Releases tab on JFK (rsb-releases.png)
+select|JFK
+scroll
+rsb|releases
+wait|1500
+shot|window|rsb-releases-full
+rsb|details
+
+// List view (gallery-list.png)
+select|Heat
+style|list
+scroll
+wait|1500
+shot|window|gallery-list-full
+style|grid
+
+// Film sheet tabs
+select|Heat
+cmd|editFilm
+sheettab|1
+shot|sheet|sheet-details
+dismiss
+select|Eyes of Laura Mars
+cmd|editFilm
+sheettab|4
+shot|sheet|sheet-notes
+dismiss
+select|JFK
+cmd|editReleases
+shot|sheet|sheet-releases
+dismiss
+select|The Shop Around the Corner
+cmd|editReleases
+shot|sheet|release-upcoming-full
+dismiss
+
+// Bulk edit: four watched films, one in the Hall of Fame
+select|Heat|JFK|Collateral|Hell or High Water
+cmd|editMetadata
+shot|sheet|bulk-edit
+dismiss
+
+// Queue, All tab (queue.png)
+nav|queue
+tab|1
+wait|1500
+shot|window|queue-full
+
+// Insights: Hall of Fame tab, then the Insights tab
+nav|reports
+tab|4
+wait|1500
+shot|window|hall-of-fame-full
+tab|1
+wait|3000
+shot|window|visualizations-full
+
+// Imports, Metadata tab
+nav|imports
+tab|1
+wait|1500
+shot|window|imports-full
+
+// Settings
+cmd|settings|1
+shot|sheet|settings-general
+dismiss
+cmd|settings|3
+shot|sheet|settings-export
+dismiss
+
+// Search: pills, then suggestions, then the saved-search sheet
+nav|all
+token|#director michael mann
+token|#rating 7+
+select|Heat
+wait|1500
+shot|window|search-pills-full
+clearsearch
+focussearch
+type|#cast tom h
+shot|screen|search-suggestions-full
+clearsearch
+nav|saved|Halloween
+cmd|editSaved|Halloween
+shot|sheet|saved-search-sheet
+dismiss

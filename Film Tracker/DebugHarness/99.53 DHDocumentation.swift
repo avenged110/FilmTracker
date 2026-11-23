@@ -119,7 +119,7 @@ extension DebugHarness {
 /// screen. Launch with `open -n` so the window can become key; run it against a copy of a
 /// library (with posters) in its own sandbox.
 ///
-/// Steps: `wait|ms` · `appearance|dark|light` · `size|w|h` · `nav|all|unwatched|recents|
+/// Steps: `wait|ms` · `deletetagged|<tag>` (deletes the films carrying it from the copy) · `appearance|dark|light` · `size|w|h` · `nav|all|unwatched|recents|
 /// reports|imports|queue` · `nav|smart|<Smart List>` · `nav|list|<name>` · `nav|saved|<name>` ·
 /// `tab|n` (the view's own tabs, 1-based) · `style|list|grid` · `select|<title>|<title>…` ·
 /// `selectfirst|n` · `scroll` · `rsb|details|releases|notes` · `cmd|editFilm|editMetadata|
@@ -216,6 +216,14 @@ extension DebugHarness {
             switch f[0] {
             case "wait":
                 await settle(Int(arg) ?? 500)
+            case "deletetagged":
+                /// Removes every film carrying the tag (compared by SearchText.key) from the
+                /// sandbox copy, through the app's own delete, so it never shows in a capture.
+                let key = SearchText.key(arg)
+                let ids = Set(coordinator.getAllFilms().filter { film in film.tags.contains { SearchText.key($0) == key } }.map(\.id))
+                await coordinator.deleteFilms(withIDs: ids)
+                r.check("deletetagged \(arg)", !ids.isEmpty, "\(ids.count) films deleted")
+                await settle(1500)
             case "appearance":
                 NSApp.appearance = NSAppearance(named: arg == "light" ? .aqua : .darkAqua)
                 await settle(600)
@@ -308,10 +316,8 @@ extension DebugHarness {
                 SearchController.shared.searchText = arg
                 await settle(1500)
             case "focussearch":
-                if let toolbar = mainWindow()?.toolbar,
-                   let search = toolbar.items.first(where: { $0.itemIdentifier.rawValue == "com.apple.SwiftUI.search" }) as? NSSearchToolbarItem {
-                    search.beginSearchInteraction()
-                }
+                /// The same path as Search > Search Film Library (⌘F).
+                SearchController.focusField()
                 await settle(800)
             case "type":
                 /// Through the field editor, as keystrokes arrive, so the field's own

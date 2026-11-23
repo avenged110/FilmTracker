@@ -261,11 +261,11 @@
   <div class="keep">
   <h3>The window</h3>
   <ul>
-    <li><strong>The sidebar</strong> on the left chooses what the window shows: the whole library, a built-in view such as Recents or Insights, a smart list, one of your own lists, or a saved search. Hide or show it with <code>&#8997;&#8984;S</code>.</li>
+    <li><strong>The sidebar</strong> on the left chooses what the window shows: the whole library, a built-in view such as Recents or Insights, a smart list, one of your own lists, a saved search, or a tag. Hide or show it with <code>&#8997;&#8984;S</code>.</li>
     <li><strong>The gallery</strong> in the middle shows the films in that view, as a grid of posters or as a list. A title bar above it holds the view&rsquo;s controls.</li>
     <li><strong>The contextual sidebar</strong> on the right shows the selected film in three tabs: Details, Releases, and Notes (Chapter 4).</li>
     <li><strong>The toolbar</strong> holds the Add Film, Import, New List, New Saved Search, and Scan for Duplicates buttons and the search field.</li>
-    <li><strong>The status bar</strong> along the bottom counts the films in the view and how many are selected. It can be turned off in Settings &gt; General.</li>
+    <li><strong>The status bar</strong> along the bottom counts the films in the view and how many are selected. A few views add a row of totals above the count (Chapters 8 and 9). It can be turned off in Settings &gt; General.</li>
   </ul>
   </div>
   <figure class="window">
@@ -318,6 +318,7 @@
       <tr><td><strong>Smart Lists</strong></td><td>Lists that maintain themselves (Chapter 7). Up for Rotation, Purchased, Unpurchased, Upcoming Releases, and Filtered Library have <code>&#8984;6</code> through <code>&#8984;9</code> and <code>&#8984;0</code>.</td><td><code>&#8984;6</code>&ndash;<code>0</code></td></tr>
       <tr><td><strong>Lists</strong></td><td>The lists you create.</td><td></td></tr>
       <tr><td><strong>Saved Searches</strong></td><td>Searches you have kept, each run afresh when you open it (the Search Guide covers them).</td><td></td></tr>
+      <tr><td><strong>Tags</strong></td><td>The tags you pinned, then your most-used (or most recently used) tags. Each shows the films carrying it (Chapter 7).</td><td></td></tr>
     </tbody>
   </table>
   <p>Views with tabs (Unwatched, Recents, Insights, Imports, the Queue, and each smart list family) show a picker at the top of the gallery. Switch tabs with <code>&#8997;&#8984;1</code> through <code>&#8997;&#8984;9</code>, or step through them with <code>&#8984;&uarr;</code> and <code>&#8984;&darr;</code>. Unwatched, Recents, Insights, and the Queue also expand in the sidebar with their disclosure arrows, so you can jump straight to any of their tabs.</p>
@@ -328,7 +329,7 @@
   </div>
   <figure class="wide">
     <img class="crop" src="Images/gallery-list.png" alt="The gallery as a list">
-    <figcaption>The list view: duration, a disc glyph for films with a purchased release, rating, and year.</figcaption>
+    <figcaption>The list view: duration, a disc glyph for films with a purchased release, rating, and year. A Queue glyph (not shown here) marks films in the Queue.</figcaption>
   </figure>
 
   <div class="keep">
@@ -362,7 +363,7 @@
   <ul>
     <li>Click to select; <code>&#8984;</code>-click and <code>&#8679;</code>-click to select several. <code>&#8984;A</code> selects everything in the view.</li>
     <li>Press <strong>Tab</strong> to move keyboard focus into the gallery, then use the arrow keys.</li>
-    <li>Secondary-click a film (or use the Film menu) to add it to the Queue or a list, see which lists it is in, edit it, remove it from a list, or delete it. With several films selected, Edit Metadata&hellip; edits them all at once (Chapter 3).</li>
+    <li>Secondary-click a film (or use the Film menu) to add it to the Queue or a list, see which lists it is in, edit it, remove it from a list, or delete it. With several films selected, Edit Metadata&hellip; edits them all at once (Chapter 3). The same menu works on the rows of the Insights tables (Chapter 8).</li>
     <li><code>&#8984;L</code> (View &gt; Scroll to Selection) brings the selected film back into view after scrolling away.</li>
     <li>Drag films onto a list or the Queue in the sidebar to add them there.</li>
   </ul>
@@ -565,7 +566,7 @@
     <li><strong>Removing:</strong> in the Queue, press <code>&#8997;&#9003;</code> (Remove from List).</li>
     <li><strong>Automatically:</strong> in the film sheet, check <em>Add to &hellip; Queue when up for rotation</em> and choose a section. The film is queued for you when it comes due. If that section is Up Next and it is full by then, the film goes to Soon instead.</li>
   </ul>
-  <p><strong>Up Next holds at most eight films.</strong> On the All tab, each empty place in it is shown as a dashed outline. Click one to search for a film to add there, or drag films from Soon or Later onto it to move them up. A choice that would overfill Up Next is unavailable in the menus, and dropping too many films on it in the sidebar offers to put them in Soon instead.</p>
+  <p><strong>Up Next holds at most eight films.</strong> On the All and Up Next tabs, each empty place in it is shown as a dashed outline (all eight when it is empty, as long as the Queue holds any films). Click one to search for a film to add there, or drag films from Soon or Later onto it to move them up. A choice that would overfill Up Next is unavailable in the menus, and dropping too many films on it in the sidebar offers to put them in Soon instead.</p>
   <p>With <strong>ATVQ integration</strong> turned on in Settings &gt; Advanced, a button in the Queue&rsquo;s title bar sends the films in Up Next to the ATVQ app on your Apple TV.</p>
   <p>Settings &gt; General can keep queued films out of the Up for Rotation lists (so those lists show only what you have not yet planned), and can warn before you queue a film that carries a Special Sorting tag, or before you tag a film that is already queued. Moving a film from one Queue section to another never asks.</p>
 
@@ -654,7 +655,7 @@
     <li><strong>Create</strong> one with File &gt; Create New List&hellip; (<code>&#8984;N</code>), or make one from the films you have selected with Create New List from Selection&hellip; (<code>&#8679;&#8984;N</code>).</li>
     <li><strong>Add films</strong> by dragging them onto the list in the sidebar, with Film &gt; Add to List, or in the film sheet&rsquo;s List Membership field.</li>
     <li><strong>Reorder</strong> lists by dragging them in the sidebar.</li>
-    <li><strong>Manage</strong> a list by secondary-clicking it: Edit List Name&hellip;, Duplicate List (<code>&#8997;&#8984;N</code>), Clear List Contents, Delete All List Contents from Library, and Remove List.</li>
+    <li><strong>Manage</strong> a list by secondary-clicking it, or with the List menu while it is showing: Edit List Name&hellip; (<code>&#8997;&#8984;R</code>), Duplicate List (<code>&#8984;D</code>), Clear List Contents, Delete All List Contents from Library, and Remove List (<code>&#8997;&#8984;&#9003;</code>).</li>
   </ul>
   </div>
   <div class="warn"><span class="t">Know the difference</span><p><strong>Clear List Contents</strong> empties the list and leaves the films in your library. <strong>Delete All List Contents from Library</strong> deletes every film in the list from Film Tracker. <strong>Remove List</strong> deletes the list itself and leaves its films alone.</p></div>
@@ -699,8 +700,21 @@
   </div>
 
   <div class="keep">
+  <h3>Tags in the sidebar</h3>
+  <p>The tags you give films (Metadata tab) can have their own rows in the sidebar, below Saved Searches. Clicking one shows every film carrying that tag; capitals, accents and punctuation don&rsquo;t matter, so <em>Sci-Fi</em> and <em>scifi</em> are one tag.</p>
+  <ul>
+    <li><strong>Pinned Tags</strong> (a filled tag glyph) are the tags you chose, in the order you drag them into. A pinned tag keeps its row even when no film carries it.</li>
+    <li><strong>Most-Used Tags</strong> fills the rest: up to 5, 10, or 20 tags, set in Settings &gt; General, where you can also list them by most recent use instead (the section is then <strong>Most-Recent Tags</strong>). Pinned tags are never listed twice.</li>
+    <li>A tag&rsquo;s row menu (secondary-click, or the &hellip; button that appears on hover), and the List menu while it is showing, has <strong>Pin Tag</strong> or <strong>Unpin Tag</strong> (<code>&#8984;D</code>), <strong>Edit Tag Name&hellip;</strong> (<code>&#8997;&#8984;R</code>), and <strong>Delete Tag</strong> (<code>&#8997;&#8984;&#9003;</code>); the row menu also has <strong>View All Tags&hellip;</strong>.</li>
+    <li><strong>File &gt; View All Tags&hellip;</strong> lists every tag in the library with the number of films using it. Each row can pin, rename, or delete its tag, show its films, or make a new list from them.</li>
+    <li>Renaming a tag renames it on every film. A name already used by another tag is refused (a change of capitals alone is allowed). Saved searches that look for the tag are updated to the new name; the rename sheet names them first.</li>
+    <li>Deleting a tag removes it from every film that carries it, after a confirmation. It cannot be undone.</li>
+  </ul>
+  </div>
+
+  <div class="keep">
   <h3>Saved searches</h3>
-  <p>A saved search sits in the sidebar under <strong>Saved Searches</strong> and behaves like a smart list whose rule you write yourself: it holds whatever matches its search, recalculated each time you open it. Save one from the search field (<code>&#8984;S</code>) or build one from rules (<code>&#8679;&#8984;S</code>). Its row&rsquo;s menu (secondary-click, or the &hellip; button that appears on hover) has Edit Saved Search&hellip;, Duplicate Saved Search&hellip;, Open in Search Field, and Remove Saved Search. The <em>Film Tracker Search Guide</em> explains them in full.</p>
+  <p>A saved search sits in the sidebar under <strong>Saved Searches</strong> and behaves like a smart list whose rule you write yourself: it holds whatever matches its search, recalculated each time you open it. Save one from the search field (<code>&#8984;S</code>) or build one from rules (<code>&#8679;&#8984;S</code>). Its row&rsquo;s menu (secondary-click, or the &hellip; button that appears on hover) has Edit Saved Search&hellip;, Duplicate Saved Search&hellip; (<code>&#8984;D</code> while it is showing), Open in Search Field, and Remove Saved Search. The <em>Film Tracker Search Guide</em> explains them in full.</p>
   </div>
 </section>
 
@@ -728,12 +742,12 @@
 
   <div class="keep">
   <h3>Insights</h3>
-  <p>The Insights view (<code>&#8984;4</code>) has five tabs. As with Unwatched, its first tab, <strong>Insights</strong>, is the view itself, and the other four sit under it in the sidebar. The share button in its title bar opens the PDF export (Chapter 10).</p>
+  <p>The Insights view (<code>&#8984;4</code>) has five tabs. As with Unwatched, its first tab, <strong>Insights</strong>, is the view itself, and the other four sit under it in the sidebar. The share button in its title bar opens the PDF export (Chapter 10). Secondary-click a row in any of the four tables for the same film menu as in the gallery; a release row stands for its film.</p>
   </div>
 
   <div class="keep">
   <h4>Purchase and Expense Tracker</h4>
-  <p>Every purchased release with its cost, the amount spent, the purchase date, studio, condition, and notes. Click a column heading to sort by it.</p>
+  <p>Every purchased release with its cost, the amount spent, the purchase date, studio, condition, and notes. Click a column heading to sort by it. The status bar adds the total cost and amount spent, the share of the cost actually spent, and the average cost.</p>
   </div>
 
   <div class="keep">
@@ -743,7 +757,7 @@
 
   <div class="keep">
   <h4>Hall of Fame</h4>
-  <p>Your personal ranking of up to 200 films. Add a film with the Hall of Fame checkbox in the film sheet; it joins at the bottom. Drag rows to reorder them. The report also shows the best format you own each film in, and when a better format is available.</p>
+  <p>Your personal ranking of up to 200 films. Add a film with the Hall of Fame checkbox in the film sheet; it joins at the bottom. Drag rows to reorder them. Beside each film are a Queue glyph when it is queued, a clock with the default rotation threshold (such as &ldquo;2+&rdquo;, in years) once the film has gone that long since its last viewing, the best format you own it in (and when a better format is available), your rating, and the year. The status bar adds how many films are owned best in each format and how many have each rating, each with its share of the list.</p>
   </div>
   <figure class="wide">
     <img class="crop" src="Images/hall-of-fame.png" alt="The Hall of Fame report">
@@ -761,7 +775,7 @@
   </div>
   <div class="two">
     <div><ul>
-      <li><strong>Library Overview:</strong> totals (including Purchased Films, the share of the library you own on disc), Ownership, Catalog Health, Ratings Breakdown, Collection Growth, and Needs Attention (overdue rotations, missing IDs or posters, and more)</li>
+      <li><strong>Library Overview:</strong> totals (including Purchased Films, the share of the library you own on disc), Ownership, Ratings Breakdown, Collection Growth, Needs Attention (overdue rotations, missing IDs or posters, and more), Catalog Health (including watched films with no viewing dates, purchases with no price, and untagged films), and a Hall of Fame card that compares your Hall of Fame with the rest of the library</li>
       <li><strong>Viewing History:</strong> viewings by month, first-time viewings and rewatches, versions watched, seasonality</li>
       <li><strong>Rotation:</strong> what is overdue or coming up next month, and whether your thresholds match your habits</li>
       <li><strong>Purchases and Spending:</strong> formats, 4K and HDR, purchases by year, Spending Trends, Value Realized (cost per viewing), and the Wishlist</li>
@@ -812,7 +826,7 @@
 
   <div class="keep">
   <h3>The Imports view</h3>
-  <p>The Imports view has a Metadata tab and a Ratings tab. <strong>Select Files</strong> in its title bar starts an import of that tab&rsquo;s kind. Each tab shows the import in progress, with a Cancel button, and below it a card for every past import, newest first, counting the items processed, added, updated, skipped as duplicates (or, for ratings, skipped because the film is not in the library), and failed. <strong>Details</strong> on a card lists the titles behind each count. Secondary-click a card for <strong>Clear This Item</strong> and <strong>Clear All</strong>, which tidy the history; they do not undo the imports.</p>
+  <p>The Imports view has a Metadata tab and a Ratings tab. <strong>Select Files</strong> in its title bar starts an import of that tab&rsquo;s kind. Each tab shows the import in progress, with a Cancel button, and below it a card for every past import, newest first, counting the items processed, added, updated, skipped as duplicates (or, for ratings, skipped because the film is not in the library), and failed. <strong>Details</strong> on a card lists the titles behind each count. The status bar sums the films the tab&rsquo;s imports added and updated over the past month, six months, and year, above the number of imports. Secondary-click a card for <strong>Clear This Item</strong> and <strong>Clear All</strong>, which tidy the history; they do not undo the imports.</p>
   </div>
   <figure class="wide">
     <img class="crop" src="Images/imports.png" alt="The Imports view">
@@ -900,10 +914,11 @@
       <tr><td>System calendar integration</td><td>Lets Add Viewing Event also create an event in your calendar.</td></tr>
       <tr><td>Default viewing rotation threshold</td><td>The rotation period for every film without an override. <strong>Reset All Overrides</strong> clears every override.</td></tr>
       <tr><td>Show a warning before&hellip;</td><td>Confirmations before deleting films, deleting releases, changing lists (choose lists and their contents, lists only, or contents only), queuing films that carry Special Sorting tags, adding a Special Sorting tag to a film already in the Queue, and (off by default) saving film sheet changes that would take the selected film out of the current view. Moving a tagged film between Queue sections never asks.</td></tr>
-      <tr><td>Notify me about&hellip;</td><td>A notification on the release day of each release cataloged while its date was still ahead, at 9:00&nbsp;AM, whether or not Film Tracker is open. Choose all new releases or wishlisted ones only. Turning it on asks macOS for permission to notify.</td></tr>
+      <tr><td>Notify me about&hellip;</td><td>One notification on each day a release cataloged while its date was still ahead comes out, at 9:00&nbsp;AM, whether or not Film Tracker is open. It names the release, or, when several come out the same day, counts them and names the first few. Choose all new releases or wishlisted ones only. Turning it on asks macOS for permission to notify.</td></tr>
       <tr><td>Large poster images</td><td>At most six grid columns instead of eight, for bigger posters on large windows.</td></tr>
       <tr><td>Show the status bar</td><td>The film count along the bottom of the window.</td></tr>
       <tr><td>Show the Smart Lists section</td><td>Shows or hides smart lists. Beneath it: exclude queued films from the Up for Rotation lists.</td></tr>
+      <tr><td>Show up to &hellip; tags in the sidebar</td><td>How many tags the sidebar lists (5, 10, or 20), and whether they are the most-used or the most recently used. Off hides the section; pinned tags stay (Chapter 7).</td></tr>
       <tr><td>When dragging films onto the Queue&hellip;</td><td>Makes the Queue a drop target, and picks the section dropped films join.</td></tr>
       <tr><td>Contextual sidebar</td><td>Show the Web Query button; keep the same tab when the selection changes; expand collapsed tables automatically; show additional Viewing History details; keep the Releases tab&rsquo;s All / Purchased / Unpurchased choice when the selection changes; show a summary table of all releases.</td></tr>
       <tr><td>Show relevant suggestions when using the search field</td><td>Suggests titles and token values from your library as you type, ranked by what you search for most. The same setting covers the value suggestions in the saved-search builder and in the film sheet&rsquo;s Tags and release studio fields. Beneath it: list your recent searches from this session when you click the empty field.</td></tr>
@@ -967,7 +982,9 @@
       <table><tbody>
         <tr><td><code>&#8984;N</code></td><td>Create New List</td></tr>
         <tr><td><code>&#8679;&#8984;N</code></td><td>New List from Selection</td></tr>
-        <tr><td><code>&#8997;&#8984;N</code></td><td>Duplicate List (or the selected saved search)</td></tr>
+        <tr><td><code>&#8984;D</code></td><td>Duplicate List (or the selected saved search); for a tag, Pin or Unpin</td></tr>
+        <tr><td><code>&#8997;&#8984;R</code></td><td>Edit List Name (or Edit Tag Name)</td></tr>
+        <tr><td><code>&#8997;&#8984;&#9003;</code></td><td>Remove List (or Delete Tag)</td></tr>
         <tr><td><code>&#8984;S</code></td><td>Save Search</td></tr>
         <tr><td><code>&#8679;&#8984;S</code></td><td>Create New Saved Search</td></tr>
       </tbody></table>

@@ -93,8 +93,9 @@ struct WatchDetails: View, Loggable {
         return film.map { RSBHelpers.sourceDisplay(for: $0, today: today) } ?? RSBHelpers.SourceDisplay()
     }
 
-    private var cachedAverageBetweenViewings: String {
-        film.map { calculateAverageBetweenViewings(for: $0) } ?? ""
+    /// The average spelled out, and its abbreviated form when it has one ("2 yr. 6 mo.").
+    private var cachedAverageBetweenViewings: (full: String, abbreviated: String?) {
+        film.map { calculateAverageBetweenViewings(for: $0) } ?? ("", nil)
     }
 
     private var cachedViewCountData: (formattedValue: String, isPlaceholder: Bool) {
@@ -569,27 +570,34 @@ struct WatchDetails: View, Loggable {
         /// Derive display state from the derived values only — no live snapshot reads.
         /// cachedCalendarTableCount and cachedAverageBetweenViewings are computed from
         /// the same film value in the same render, so they cannot disagree.
+        let average = cachedAverageBetweenViewings
         let displayValueAndPlaceholder: (String, Bool) = {
             switch cachedCalendarTableCount {
             case 0:  return ("None recorded", true)
             case 1:  return ("Insufficient data", true)
             default:
-                let value = cachedAverageBetweenViewings
                 /// An empty value with 2+ entries means fewer than two parsed into usable dates
                 /// (calculateAverageBetweenViewings drops unparseable ones). That reads as "Insufficient data", not
                 /// "None recorded", because the adjacent Recorded View Count shows the raw non-zero count.
-                return value.isEmpty ? ("Insufficient data", true) : (value, false)
+                return average.full.isEmpty ? ("Insufficient data", true) : (average.full, false)
             }
         }()
+        let isPlaceholder = displayValueAndPlaceholder.1
+        let color: Color = isPlaceholder ? Color(nsColor: .tertiaryLabelColor) : .primary
 
-        RSBHelpers.textSection(
-            title: "Avg. Between Viewings",
-            displayValue: displayValueAndPlaceholder.0,
-            isPlaceholder: displayValueAndPlaceholder.1,
-            glyph: gatedGlyph("rectangle.split.3x1"),
-            glyphColor: glyphTint(isPlaceholder: displayValueAndPlaceholder.1),
-            trailingInset: Self.viewCountTrailingInset
-        )
+        /// As "Source for Viewing": the spelled-out value whenever it fits on one line, the abbreviated one
+        /// only when the full one would wrap (measured by fittingValueRow, not predicted).
+        VStack(alignment: .leading, spacing: RSBHelpers.headerRowSpacing) {
+            RSBHelpers.sectionHeader("Avg. Between Viewings")
+            RSBHelpers.fittingValueRow(
+                full: Text(displayValueAndPlaceholder.0).foregroundStyle(color),
+                abbreviations: isPlaceholder ? [] : (average.abbreviated.map { [Text($0).foregroundStyle(color)] } ?? []),
+                isPlaceholder: isPlaceholder,
+                glyph: gatedGlyph("rectangle.split.3x1"),
+                glyphColor: glyphTint(isPlaceholder: isPlaceholder),
+                trailingInset: Self.viewCountTrailingInset
+            )
+        }
     }
     
     /// Helper to calculate the average between viewings.
@@ -599,7 +607,7 @@ struct WatchDetails: View, Loggable {
     ///
     /// Every entry in `sortedDates` parsed, so the interval count is exactly `count - 1`. The guard below needs at
     /// least two dates, and the empty string it returns is the only way this reports nothing ("Insufficient data").
-    private func calculateAverageBetweenViewings(for film: FilmSnapshot) -> String {
+    private func calculateAverageBetweenViewings(for film: FilmSnapshot) -> (full: String, abbreviated: String?) {
         /// Sort dates from most to least recent.
         let sortedDates = film.calendarTable
             .compactMap { parseDate(from: $0) }
@@ -607,7 +615,7 @@ struct WatchDetails: View, Loggable {
 
         /// Need at least 2 viewings to calculate an average.
         guard sortedDates.count >= 2 else {
-            return ""
+            return ("", nil)
         }
 
         let calendar = AppCalendar.current
@@ -626,9 +634,11 @@ struct WatchDetails: View, Loggable {
         let average = totalDays / (sortedDates.count - 1)
         let latest = sortedDates[0]
         guard let start = calendar.date(byAdding: .day, value: -average, to: latest) else {
-            return Fmt.count(average, "day")
+            return (Fmt.count(average, "day"), nil)
         }
-        return formatSincePrior(from: start, to: latest, calendar: calendar)
+        let full = formatSincePrior(from: start, to: latest, calendar: calendar, spellsOutYearsAndMonths: true)
+        let abbreviated = formatSincePrior(from: start, to: latest, calendar: calendar)
+        return (full, abbreviated == full ? nil : abbreviated)
     }
     
     /// Renders the Duration field from the cached display strings.

@@ -108,7 +108,12 @@ struct ViewingHistoryEntry {
 /// Units are spelled out whenever they fit the 70 pt "Since Prior" column (12 pt system font).
 /// Every single-unit readout does ("11 months" is 57 pt). No year-and-month pair does ("1 year
 /// 1 month" is 81 pt), so only that form is abbreviated: "10 yr. 11 mo." is 69 pt.
-func formatSincePrior(from older: Date, to newer: Date, calendar: Calendar) -> String {
+///
+/// `spellsOutYearsAndMonths` keeps that pair spelled out too ("2 years 6 months"), for a caller
+/// that measures its own room and abbreviates only when the full form would not fit (the right
+/// sidebar's "Avg. Between Viewings").
+func formatSincePrior(from older: Date, to newer: Date, calendar: Calendar,
+                      spellsOutYearsAndMonths: Bool = false) -> String {
     let start = calendar.startOfDay(for: older)
     let end = calendar.startOfDay(for: newer)
     let days = abs(calendar.dateComponents([.day], from: start, to: end).day ?? 0)
@@ -120,6 +125,7 @@ func formatSincePrior(from older: Date, to newer: Date, calendar: Calendar) -> S
     let months = totalMonths % 12
     if years == 0 { return Fmt.count(months, "month") }
     if months == 0 { return Fmt.count(years, "year") }
+    if spellsOutYearsAndMonths { return Fmt.count(years, "year") + " " + Fmt.count(months, "month") }
     return "\(years) yr. \(months) mo."
 }
 
